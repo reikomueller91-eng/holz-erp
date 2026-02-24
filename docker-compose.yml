@@ -1,0 +1,73 @@
+version: "3.9"
+
+# HolzERP – Production Docker Compose
+# Usage: docker compose up -d
+
+services:
+  # ─── Reverse Proxy (TLS termination) ───────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - proxy
+
+  # ─── Backend API ────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_PATH: /data/holz.db
+      FILE_STORE_PATH: /data/files
+      LOG_LEVEL: info
+    volumes:
+      - holz_data:/data
+    networks:
+      - proxy
+      - internal
+    # No external port exposure — Caddy proxies to this
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ─── Frontend (React SPA) ───────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - proxy
+    # Static files served by nginx inside the container
+
+volumes:
+  holz_data:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+
+networks:
+  proxy:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true

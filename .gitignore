@@ -1,0 +1,44 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Database (never commit!)
+*.db
+*.db-wal
+*.db-shm
+data/
+
+# Generated files
+*.pdf
+
+# Docker volumes
+caddy/data/
+caddy/config/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Logs
+logs/
+*.log

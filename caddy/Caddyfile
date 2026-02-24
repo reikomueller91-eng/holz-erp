@@ -1,0 +1,30 @@
+# HolzERP – Caddyfile
+# Replace holz.example.com with your actual domain
+
+holz.example.com {
+    # Frontend (React SPA)
+    handle /* {
+        reverse_proxy frontend:80
+    }
+
+    # Backend API
+    handle /api/* {
+        reverse_proxy backend:3000
+    }
+
+    # Security headers
+    header {
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        -Server
+    }
+
+    # Logs
+    log {
+        output stdout
+        format json
+    }
+}
