@@ -655,15 +655,15 @@ Order List → Select Order → Job List → Tap Job
 
 ## 14. Phase Roadmap
 
-| Phase | Scope |
-|---|---|
-| **Phase 1** (current) | Architecture, Docker setup, Backend skeleton |
-| **Phase 2** | Domain models, DB migrations, Auth + Crypto |
-| **Phase 3** | Customer, Product, Pricing APIs |
-| **Phase 4** | Offer system + PDF generation |
-| **Phase 5** | Order + Production APIs |
-| **Phase 6** | Invoice system |
-| **Phase 7** | React frontend (all modules) |
-| **Phase 8** | Kleinanzeigen integration |
-| **Phase 9** | Mobile PWA + offline |
-| **Phase 10** | Multi-user, PostgreSQL migration |
+| Phase | Scope | Status |
+|---|---|---|
+| **Phase 1** | Architecture, Docker setup, Backend skeleton | ✅ Complete |
+| **Phase 2** | Domain models, DB migrations, Auth + Crypto, Customer/Product CRUD | ✅ Complete |
+| **Phase 3** | Customer, Product, Pricing APIs, Offer + Order system | ✅ Complete |
+| **Phase 4** | Offer system + PDF generation | ⏳ Planned |
+| **Phase 5** | Order + Production APIs | ⏳ Planned |
+| **Phase 6** | Invoice system | ⏳ Planned |
+| **Phase 7** | React frontend (all modules) | ⏳ Planned |
+| **Phase 8** | Kleinanzeigen integration | ⏳ Planned |
+| **Phase 9** | Mobile PWA + offline | ⏳ Planned |
+| **Phase 10** | Multi-user, PostgreSQL migration | ⏳ Planned |
