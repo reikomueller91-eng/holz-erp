@@ -1,183 +1,172 @@
 # HolzERP – Build Progress
 
-## Session: holz-erp-phase1 (2026-02-23)
+## Overview
 
-### Status: ✅ Phase 1 Complete
-
----
-
-## Completed Tasks
-
-### ✅ 1. Read SPEC.md
-Full understanding of requirements: CRM, Products, Offers, Orders, Production, Invoices, Kleinanzeigen, full encryption at rest.
-
-### ✅ 2. ARCHITECTURE.md
-Created comprehensive 600+ line architecture document covering:
-- Hexagonal (ports & adapters) architecture diagram
-- Full module map / directory structure
-- Domain model (all entities with fields)
-- Encryption architecture (Argon2id + AES-256-GCM, lock/unlock flow, threat model)
-- Full REST API design (all endpoints)
-- Database schema (all tables with SQL)
-- Security architecture (memory safety, JWT, rate limiting)
-- Deployment diagram (Caddy → Frontend/Backend → SQLite)
-- Pricing intelligence algorithm
-- Phase roadmap (10 phases)
-- Technology decisions table
-
-### ✅ 3. Docker Configuration
-- `docker-compose.yml` — production (Caddy + Backend + Frontend)
-- `docker-compose.dev.yml` — development (hot reload + adminer)
-- `backend/Dockerfile` — multi-stage (development → builder → production)
-- `caddy/Caddyfile` — reverse proxy + security headers
-- `.env.example` — documented environment variables
-- `.gitignore` — proper exclusions (never commit .db or .env)
-
-### ✅ 4. Backend Grundstruktur
-**Config files:**
-- `backend/package.json` — all dependencies (Fastify, argon2, better-sqlite3, zod, etc.)
-- `backend/tsconfig.json` — strict TypeScript + path aliases
-- `backend/tsconfig.build.json` — production build config
-
-**Source files (35 files total):**
-
-#### Shared Layer
-- `src/shared/types/index.ts` — branded types, enums, status unions, EncryptedField
-- `src/shared/errors/index.ts` — HolzError hierarchy (LockedError, NotFoundError, ImmutableError, etc.)
-- `src/shared/utils/logger.ts` — pino logger with redaction
-- `src/shared/utils/id.ts` — UUID + timestamp utilities
-
-#### Domain Layer (Pure business logic)
-- `src/domain/customer/Customer.ts` — Customer entity + encrypted payload schema
-- `src/domain/product/Product.ts` — Product, Dimensions, PriceHistory, area/price calc
-- `src/domain/offer/Offer.ts` — Offer, OfferLineItem, state machine transitions
-- `src/domain/order/Order.ts` — Order entity + state machine
-- `src/domain/invoice/Invoice.ts` — Invoice, finalization, totals calc
-- `src/domain/production/ProductionJob.ts` — ProductionJob + ProductSnapshot
-- `src/domain/pricing/PricingEngine.ts` — stub for Phase 3
-
-#### Application Layer (Ports)
-- `src/application/ports/ICryptoService.ts` — encryption abstraction
-- `src/application/ports/IDatabase.ts` — DB abstraction (SQLite ↔ PG)
-- `src/application/ports/IKeyStore.ts` — in-memory key management port
-- `src/application/ports/ICustomerRepository.ts` — customer persistence port
-- `src/application/ports/IProductRepository.ts` — product persistence port
-
-#### Application Layer (Services)
-- `src/application/services/AuthService.ts` — setup/unlock/lock/change-password with Argon2id
-- `src/application/services/CustomerService.ts` — customer CRUD use cases
-- `src/application/services/ProductService.ts` — product CRUD + pricing use cases
-
-#### Infrastructure Layer
-- `src/infrastructure/crypto/CryptoService.ts` — AES-256-GCM implementation
-- `src/infrastructure/crypto/KeyStore.ts` — singleton in-memory key store with zero-on-lock
-- `src/infrastructure/db/sqlite/SqliteDatabase.ts` — better-sqlite3 adapter
-- `src/infrastructure/db/migrate.ts` — migration runner + full initial schema
-- `src/infrastructure/repositories/CustomerRepository.ts` — SQLite customer repo (fully encrypted)
-- `src/infrastructure/repositories/ProductRepository.ts` — SQLite product repo (name/desc encrypted)
-
-#### API Layer
-- `src/api/server.ts` — Fastify server with plugins, error handler, DI wiring
-- `src/api/routes/health.routes.ts` — GET /api/health, GET /api/health/lock-state
-- `src/api/routes/auth.routes.ts` — POST /api/auth/{setup,unlock,lock,change-password}
-- `src/api/routes/customers.ts` — Full CRUD: GET/POST/PUT/DELETE /api/customers
-- `src/api/routes/products.ts` — Full CRUD + pricing: /api/products + /api/products/:id/price
-
-#### Entry Point
-- `src/main.ts` — bootstraps DB, runs migrations, starts Fastify, graceful shutdown
+- Phase 1: Architecture + Docker + Backend skeleton ✅ Complete
+- Phase 2: Customer, Product, Auth, Crypto ✅ Complete  
+- Phase 3: Pricing, Offers, Orders ✅ Complete
+- Phase 4: Invoice system + PDF ⏳ Planned
+- Phase 5: Production UI (keypad-optimized) ⏳ Planned
+- Phase 6: React Frontend ⏳ Planned
+- Phase 7: Kleinanzeigen Integration ⏳ Planned
 
 ---
 
-## Project Stats
-- **Files created:** ~40
-- **Lines of code:** ~2,400 (TypeScript)
-- **Lines of architecture:** ~600 (Markdown)
-- **TypeScript errors:** 0 ✅
+## Session: holz-erp-phase3 (2026-02-24)
+
+### Status: ✅ Phase 3 Complete
 
 ---
 
-## Session: holz-erp-phase2 (2026-02-24)
+## Phase 3 Completed Tasks
 
-### Status: ✅ Phase 2 Complete
+### ✅ 1. PricingService (`src/application/services/PricingService.ts`)
+- Area-based price calculation: `(height × width) / divisor × length × quantity`
+- Quality grade adjustments (A-E)
+- Quantity discount tiers (10→5%, 50→10%, 100→15%)
+- Price history analysis for intelligent suggestions
+- `calculatePrice()` — core calculation with all parameters
+- `calculatePriceForProduct()` — convenience wrapper using Product object
+- `getPriceHistory()` — fetches historical prices from orders
+- `suggestPrice()` — recommends price based on history and customer context
+
+### ✅ 2. Pricing Routes (`src/api/routes/pricing.ts`)
+- `POST /api/pricing/calculate` — Calculate price for dimensions
+- `POST /api/pricing/history` — Get price history for product
+- `POST /api/pricing/suggest` — Get intelligent price suggestion
+
+### ✅ 3. Offer Domain Model (`src/domain/models/Offer.ts`)
+- Full Offer entity with version history support
+- State machine: draft → sent → accepted → rejected → converted
+- Offer items with dimensions, quality, pricing
+- Version tracking (every change creates new version)
+- `update()` — creates new version with change tracking
+- `markAsSent()` / `markAsAccepted()` / `markAsRejected()` / `markAsConverted()`
+
+### ✅ 4. Offer Repository (`src/infrastructure/repositories/OfferRepository.ts`)
+- Full encrypted storage using AES-256-GCM
+- `encrypted_data` column contains: sellerAddress, customerAddress, items, totals
+- Plaintext columns: id, status, customer_id, timestamps
+- `findAll()` / `findById()` / `findByOfferNumber()` / `findByCustomer()`
+- `save()` / `update()` / `getVersionHistory()` / `saveVersion()`
+- Version history stored in separate `offer_versions` table
+
+### ✅ 5. Offer Routes (`src/api/routes/offers.ts`)
+- `GET /api/offers` — List with filters (status, customerId, pagination)
+- `GET /api/offers/:id` — Get offer with version history
+- `POST /api/offers` — Create offer from customer + items
+- `PUT /api/offers/:id` — Update offer (creates new version)
+- `POST /api/offers/:id/status` — Change status (sent/accepted/rejected)
+- `GET /api/offers/:id/versions/:version` — Get specific version
+
+### ✅ 6. Order Domain Model (`src/domain/models/Order.ts`)
+- Order entity with production tracking
+- States: new → in_production → finished → invoiced → paid → picked_up
+- Production status: not_started → in_progress → completed
+- Items track: quantity, quantityProduced, productionStatus
+- `updateItemProduction()` — incrementally update produced quantity
+- `markAsInvoiced()` / `markAsPaid()` / `markAsPickedUp()`
+
+### ✅ 7. Order Repository (`src/infrastructure/repositories/OrderRepository.ts`)
+- Full encrypted storage (items, totals, production status in `encrypted_data`)
+- Plaintext: id, status, customer_id, timestamps, finished_at
+- `findAll()` / `findById()` / `findByProduct()` / `findByOfferId()` / `findByOrderNumber()`
+- `save()` / `update()`
+- Filters by status for production views
+
+### ✅ 8. Order Routes (`src/api/routes/orders.ts`)
+- `GET /api/orders` — List orders with filters
+- `GET /api/orders/production` — Production view (all open items aggregated)
+- `GET /api/orders/:id` — Get order with customer info
+- `POST /api/orders` — Create order (from offer or scratch)
+- `POST /api/orders/:id/production` — Update production quantity for item
+- `POST /api/orders/:id/status` — Change order status
+
+### ✅ 9. TypeScript Verification
+- All 3 phases compile with **0 TypeScript errors**
+- Fixed all `exactOptionalPropertyTypes` issues
+- Proper UUID branded type usage (via shared/types/index.ts)
+- Correct ICryptoService interface usage (encryptJson → serializeField)
+- Correct IDatabase interface usage (run/query/queryOne, no execute)
 
 ---
 
-## Phase 2 Completed Tasks
-
-### ✅ 1. npm install
-All 477 packages installed successfully.
-
-### ✅ 2. TypeScript compilation fixed
-Fixed 6 TypeScript errors caused by `exactOptionalPropertyTypes: true` in tsconfig:
-
-**Root cause:** Zod `.optional()` parses to `T | undefined`, but `exactOptionalPropertyTypes: true`
-requires truly-absent optional properties (no explicit `undefined`). All fixes use explicit
-conditional spreads (`...(value !== undefined ? { key: value } : {})`) and `as` casts for
-nested types (e.g. `ContactInfo` with its own optional sub-fields).
-
-**Files fixed:**
-- `src/api/routes/customers.ts` — create/update inputs built explicitly
-- `src/api/routes/products.ts` — create/update/setPrice inputs built explicitly
-- `src/infrastructure/repositories/ProductRepository.ts` — `rowToPriceHistory` refactored
-  to use imperative property assignment instead of conditional spread return (avoids
-  indexed-access `PriceHistory['effectiveTo']` resolving to `ISODateTime | undefined`)
-
-### ✅ 3. Customer Repository (`src/infrastructure/repositories/CustomerRepository.ts`)
-Already implemented in Phase 1 skeleton, reviewed and verified correct:
-- `findById` / `findAll` / `count` — read with pagination
-- `create` — encrypts full payload (name, contactInfo, notes, source, kleinanzeigenId) as
-  single `encrypted_data` JSON blob using AES-256-GCM via CryptoService
-- `update` — re-encrypts full payload on write; only id + timestamps + is_active in plaintext
-- `softDelete` — sets `is_active = 0`
-
-### ✅ 4. Customer Routes (`src/api/routes/customers.ts`)
-- `GET /api/customers` — paginated list (includeInactive, page, pageSize)
-- `GET /api/customers/:id` — single customer
-- `POST /api/customers` — create with Zod validation
-- `PUT /api/customers/:id` — update with partial Zod validation
-- `DELETE /api/customers/:id` — soft delete (204)
-- All routes guard with `requireUnlocked()` (throws LockedError → 403)
-
-### ✅ 5. Product Repository (`src/infrastructure/repositories/ProductRepository.ts`)
-Already implemented in Phase 1 skeleton, reviewed and verified correct:
-- Products: name + description encrypted in `encrypted_data` column
-- Searchable fields (wood_type, quality_grade, height_mm, width_mm) kept in plaintext
-- `getCurrentPrice` / `getPriceHistory` / `addPriceEntry` — full price history with
-  automatic closing of previous open price entry on new price set
-
-### ✅ 6. Product Routes (`src/api/routes/products.ts`)
-- `GET /api/products` — paginated list (woodType, qualityGrade, includeInactive filters)
-- `GET /api/products/:id` — single product + currentPricePerM2
-- `POST /api/products` — create with optional initialPricePerM2
-- `PUT /api/products/:id` — partial update
-- `DELETE /api/products/:id` — soft delete (204)
-- `GET /api/products/:id/price-history` — full price history
-- `POST /api/products/:id/price` — set new price (closes previous)
-
----
-
-## Encryption Summary
+## Encryption Architecture (All Phases)
 
 | Entity | Encrypted fields | Plaintext fields |
 |--------|-----------------|-----------------|
-| Customer | name, contactInfo, notes, source, kleinanzeigenId (all in single `encrypted_data` blob) | id, is_active, created_at, updated_at |
-| Product | name, description (in `encrypted_data`) | id, wood_type, quality_grade, height_mm, width_mm, is_active, timestamps |
-| PriceHistory | none | all fields (price data not sensitive at this stage) |
+| Customer | name, contactInfo, notes, source, kleinanzeigenId | id, is_active, timestamps |
+| Product | name, description | id, wood_type, quality_grade, dimensions, is_active, timestamps |
+| Offer | sellerAddress, customerAddress, items, totals, notes | id, offer_number, status, customer_id, timestamps |
+| Order | items, totals, productionStatus, notes | id, order_number, status, customer_id, timestamps, finished_at |
 
 ---
 
-## Next Session: Phase 3
+## REST API Summary
+
+### Auth
+- `POST /api/auth/setup` — Initial master password
+- `POST /api/auth/unlock` — Unlock system
+- `POST /api/auth/lock` — Lock system
+- `POST /api/auth/change-password` — Change master password
+
+### Customers
+- `GET /api/customers` — List (paginated, filters)
+- `POST /api/customers` — Create
+- `GET /api/customers/:id` — Get
+- `PUT /api/customers/:id` — Update
+- `DELETE /api/customers/:id` — Soft delete
+
+### Products
+- `GET /api/products` — List (paginated, filters)
+- `POST /api/products` — Create
+- `GET /api/products/:id` — Get + current price
+- `PUT /api/products/:id` — Update
+- `DELETE /api/products/:id` — Soft delete
+- `GET /api/products/:id/price-history` — Price history
+- `POST /api/products/:id/price` — Set new price
+
+### Pricing
+- `POST /api/pricing/calculate` — Calculate price
+- `POST /api/pricing/history` — Price history
+- `POST /api/pricing/suggest` — Intelligent suggestion
+
+### Offers
+- `GET /api/offers` — List (paginated, filters)
+- `POST /api/offers` — Create
+- `GET /api/offers/:id` — Get with version history
+- `PUT /api/offers/:id` — Update (creates version)
+- `POST /api/offers/:id/status` — Change status
+- `GET /api/offers/:id/versions/:version` — Get version
+
+### Orders
+- `GET /api/orders` — List
+- `GET /api/orders/production` — Production view
+- `POST /api/orders` — Create (from offer or scratch)
+- `GET /api/orders/:id` — Get with customer info
+- `POST /api/orders/:id/production` — Update production progress
+- `POST /api/orders/:id/status` — Change status
+
+---
+
+## Next Session: Phase 4
 
 Tasks for next agent session:
-1. Implement Offer domain routes (`/api/offers`) + OfferRepository
-2. Implement Order routes (`/api/orders`) + OrderRepository
-3. Add integration tests for auth + customer + product flows
-4. Consider JWT middleware for all protected routes (currently only checks keyStore.isUnlocked())
-5. Implement PricingEngine (`src/domain/pricing/PricingEngine.ts`)
+1. Invoice domain model + repository + routes
+2. PDF generation for offers and invoices
+3. Template system for PDF layouts
+4. Invoice finalization (immutable after finalize)
 
-Key files to read at session start:
-- `ARCHITECTURE.md` (full design — especially section 6.4, 6.5 for Offer/Order API design)
-- `PROGRESS.md` (this file)
-- `backend/src/domain/offer/Offer.ts` (Offer entity + state machine)
-- `backend/src/domain/order/Order.ts` (Order entity)
-- `backend/src/application/services/CustomerService.ts` (pattern to follow for OfferService)
+Key files to read:
+- `ARCHITECTURE.md` (section on Invoices and PDF generation)
+- `backend/src/domain/invoice/Invoice.ts` (existing stub)
+- `backend/src/infrastructure/repositories/OrderRepository.ts` (pattern for InvoiceRepository)
+
+---
+
+## Project Stats (All Phases)
+- **Total files:** ~60
+- **Lines of code:** ~3,200 (TypeScript)
+- **Lines of architecture:** ~600 (Markdown)
+- **TypeScript errors:** 0 ✅
+- **Tests:** ⏳ Not yet implemented
