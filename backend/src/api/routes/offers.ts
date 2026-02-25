@@ -2,12 +2,11 @@ import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { IOfferRepository } from '../../infrastructure/repositories/OfferRepository';
 import { ICustomerRepository } from '../../application/ports/ICustomerRepository';
-import { IProductRepository } from '../../application/ports/IProductRepository';
-import { Offer, OfferItem } from '../../domain/models/Offer';
-import { OfferStatus } from '../../application/types';
+import type { Offer, OfferItem } from '../../domain/offer/Offer';
+import { transitionOffer, createOfferVersion, calcOfferTotals } from '../../domain/offer/Offer';
+import type { OfferStatus, UUID } from '../../shared/types';
 import { requireUnlocked } from '../middleware/auth';
 import { generateId } from '../../shared/utils/id';
-import { IPricingService } from '../../application/services/PricingService';
 
 // Validation schemas
 const OfferItemSchema = z.object({
@@ -22,326 +21,216 @@ const OfferItemSchema = z.object({
 
 const CreateOfferSchema = z.object({
   customerId: z.string(),
-  inquirySource: z.enum(['Email', 'WhatsApp', 'Phone', 'Kleinanzeigen', 'Other']),
-  inquiryContact: z.string().optional(),
   sellerAddress: z.string(),
   customerAddress: z.string(),
-  validUntil: z.string().datetime().optional(),
+  inquirySource: z.string().default('direct'),
+  inquiryContact: z.string().optional(),
   items: z.array(OfferItemSchema).min(1),
+  validUntil: z.string().optional(),
   notes: z.string().optional(),
   vatPercent: z.number().default(19)
 });
 
 const UpdateOfferSchema = z.object({
-  inquirySource: z.enum(['Email', 'WhatsApp', 'Phone', 'Kleinanzeigen', 'Other']).optional(),
-  inquiryContact: z.string().optional(),
-  validUntil: z.string().datetime().optional(),
   items: z.array(OfferItemSchema).optional(),
-  notes: z.string().optional(),
-  vatPercent: z.number().optional()
+  sellerAddress: z.string().optional(),
+  customerAddress: z.string().optional(),
+  validUntil: z.string().optional(),
+  notes: z.string().optional()
 });
 
-const calculateTotals = (items: OfferItem[], vatPercent: number) => {
-  const netSum = items.reduce((sum, item) => sum + item.netTotal, 0);
-  const vatAmount = Math.round(netSum * (vatPercent / 100));
-  const grossSum = netSum + vatAmount;
-  return { netSum, vatAmount, grossSum };
-};
+const ChangeStatusSchema = z.object({
+  status: z.enum(['draft', 'sent', 'accepted', 'rejected', 'cancelled', 'converted'])
+});
 
-export const offerRoutes = (
-  offerRepo: IOfferRepository,
-  customerRepo: ICustomerRepository,
-  productRepo: IProductRepository,
-  pricingService: IPricingService
-) => async (fastify: FastifyInstance): Promise<void> => {
+export async function offerRoutes(fastify: FastifyInstance) {
+  const offerRepo = fastify.offerRepository as IOfferRepository;
+  const customerRepo = fastify.customerRepository as ICustomerRepository;
 
-  // List all offers
-  fastify.get('/', {
-    preHandler: requireUnlocked(),
-    handler: async (request, reply) => {
-      const { status, customerId, limit, offset } = request.query as any;
+  // GET /api/offers - List all offers
+  fastify.get(
+    '/offers',
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Querystring: { status?: string; customerId?: string; limit?: string; offset?: string } }>) => {
+      const { status, customerId, limit, offset } = request.query;
       
       const offers = await offerRepo.findAll({
-        status,
-        customerId,
+        status: status as OfferStatus | undefined,
+        customerId: customerId as UUID | undefined,
         limit: limit ? parseInt(limit) : undefined,
-        offset: offset ? parseInt(offset) : undefined
+        offset: offset ? parseInt(offset) : undefined,
       });
 
-      return reply.send({
-        success: true,
-        count: offers.length,
-        offers: offers.map(o => ({
-          id: o.getId(),
-          offerNumber: o.getOfferNumber(),
-          version: o.getVersion(),
-          status: o.getStatus(),
-          date: o.getDate(),
-          customerId: o.getCustomerId(),
-          inquirySource: o.getInquirySource(),
-          netSum: o.getNetSum(),
-          grossSum: o.getGrossSum(),
-          createdAt: o.getCreatedAt(),
-          updatedAt: o.getUpdatedAt()
-        }))
-      });
+      return { offers };
     }
-  });
+  );
 
-  // Get offer by ID
-  fastify.get('/:id', {
-    preHandler: requireUnlocked(),
-    handler: async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
-      const offer = await offerRepo.findById(request.params.id);
+  // GET /api/offers/:id - Get single offer with version history
+  fastify.get(
+    '/offers/:id',
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+      const offer = await offerRepo.findById(request.params.id as UUID);
       if (!offer) {
-        return reply.code(404).send({ error: 'Offer not found' });
+        return fastify.httpErrors.notFound('Offer not found');
       }
 
-      // Get customer details
-      const customer = await customerRepo.findById(offer.getCustomerId());
-
-      return reply.send({
-        success: true,
-        offer: {
-          ...offer.toJSON(),
-          versions: offer.getVersionHistory().map(v => ({
-            version: v.version,
-            createdAt: v.createdAt,
-            createdBy: v.createdBy,
-            changes: v.changes
-          }))
-        },
-        customer: customer ? {
-          id: customer.id,
-          customerNumber: customer.id.slice(0, 8),
-          displayName: customer.name
-        } : null
-      });
+      const versions = await offerRepo.getVersionHistory(offer.id);
+      
+      return {
+        offer,
+        versions,
+      };
     }
-  });
+  );
 
-  // Create new offer
-  fastify.post('/', {
-    preHandler: requireUnlocked(),
-    handler: async (request, reply) => {
-      const result = CreateOfferSchema.safeParse(request.body);
-      if (!result.success) {
-        return reply.code(400).send({ error: 'Invalid input', details: result.error.errors });
-      }
+  // POST /api/offers - Create offer
+  fastify.post(
+    '/offers',
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Body: z.infer<typeof CreateOfferSchema> }>) => {
+      const data = CreateOfferSchema.parse(request.body);
 
-      const data = result.data;
+      // Generate offer number
+      const offerCount = (await offerRepo.findAll()).length;
+      const offerNumber = `OFF-${String(offerCount + 1).padStart(6, '0')}`;
 
-      // Validate customer exists
-      const customer = await customerRepo.findById(data.customerId);
-      if (!customer) {
-        return reply.code(404).send({ error: 'Customer not found' });
-      }
+      // Build items
+      const items: OfferItem[] = data.items.map(item => {
+        const areaM2 = (item.heightMm / 1000) * (item.widthMm / 1000) * (item.lengthMm / 1000);
+        const netTotal = Math.round(areaM2 * item.quantity * item.pricePerM2);
 
-      // Build offer items
-      const offerItems: OfferItem[] = [];
-      for (const item of data.items) {
-        const product = await productRepo.findById(item.productId);
-        if (!product) {
-          return reply.code(404).send({ error: `Product ${item.productId} not found` });
-        }
-
-        // Calculate price using pricing service
-        const calculation = pricingService.calculatePrice(
-          product.dimensions.heightMm,
-          product.dimensions.widthMm,
-          item.lengthMm,
-          item.quantity,
-          item.pricePerM2,
-          item.quality
-        );
-
-        offerItems.push({
-          id: generateId(),
-          productId: item.productId,
+        return {
+          id: generateId() as UUID,
+          productId: item.productId as UUID,
           heightMm: item.heightMm,
           widthMm: item.widthMm,
           lengthMm: item.lengthMm,
           quantity: item.quantity,
           quality: item.quality,
           pricePerM2: item.pricePerM2,
-          netTotal: calculation.finalTotal
-        });
-      }
+          netTotal,
+        };
+      });
 
-      const { netSum, vatAmount, grossSum } = calculateTotals(offerItems, data.vatPercent);
+      const totals = calcOfferTotals(items, data.vatPercent);
 
-      const offer = Offer.create({
-        offerNumber: `A${Date.now()}`, // Generate offer number
-        status: 'draft' as OfferStatus,
-        date: new Date(),
-        validUntil: data.validUntil ? new Date(data.validUntil) : undefined,
+      const offer: Offer = {
+        id: generateId() as UUID,
+        offerNumber,
+        version: 1,
+        customerId: data.customerId as UUID,
+        status: 'draft',
+        date: new Date().toISOString().split('T')[0],
+        validUntil: data.validUntil,
         inquirySource: data.inquirySource,
         inquiryContact: data.inquiryContact,
-        customerId: data.customerId,
         sellerAddress: data.sellerAddress,
         customerAddress: data.customerAddress,
-        items: offerItems,
-        netSum,
+        items,
+        ...totals,
         vatPercent: data.vatPercent,
-        vatAmount,
-        grossSum,
-        notes: data.notes
-      });
+        notes: data.notes,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
 
       await offerRepo.save(offer);
 
-      return reply.code(201).send({
-        success: true,
-        offer: offer.toJSON()
-      });
+      return { offer };
     }
-  });
+  );
 
-  // Update offer
-  fastify.put('/:id', {
-    preHandler: requireUnlocked(),
-    handler: async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
-      const offer = await offerRepo.findById(request.params.id);
+  // PUT /api/offers/:id - Update offer (creates new version)
+  fastify.put(
+    '/offers/:id',
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof UpdateOfferSchema> }>) => {
+      const data = UpdateOfferSchema.parse(request.body);
+      
+      let offer = await offerRepo.findById(request.params.id as UUID);
       if (!offer) {
-        return reply.code(404).send({ error: 'Offer not found' });
+        return fastify.httpErrors.notFound('Offer not found');
       }
 
-      if (!offer.isEditable()) {
-        return reply.code(400).send({ error: 'Offer cannot be modified in current state' });
-      }
+      // Save current version before update
+      const version = createOfferVersion(offer);
+      await offerRepo.saveVersion(offer.id, version);
 
-      const result = UpdateOfferSchema.safeParse(request.body);
-      if (!result.success) {
-        return reply.code(400).send({ error: 'Invalid input' });
-      }
+      // Update offer
+      const updates: Partial<Offer> = {
+        version: offer.version + 1,
+        updatedAt: new Date().toISOString(),
+      };
 
-      const data = result.data;
-      const changes: string[] = [];
-
-      // Build updated items if provided
-      let updatedItems = offer.getItems();
-      let updatedVatPercent = offer.getVatPercent();
+      if (data.sellerAddress) updates.sellerAddress = data.sellerAddress;
+      if (data.customerAddress) updates.customerAddress = data.customerAddress;
+      if (data.validUntil !== undefined) updates.validUntil = data.validUntil;
+      if (data.notes !== undefined) updates.notes = data.notes;
 
       if (data.items) {
-        changes.push(`Updated ${data.items.length} items`);
-        updatedItems = [];
-        for (const item of data.items) {
-          const product = await productRepo.findById(item.productId);
-          if (!product) {
-            return reply.code(404).send({ error: `Product ${item.productId} not found` });
-          }
+        const items: OfferItem[] = data.items.map(item => {
+          const areaM2 = (item.heightMm / 1000) * (item.widthMm / 1000) * (item.lengthMm / 1000);
+          const netTotal = Math.round(areaM2 * item.quantity * item.pricePerM2);
 
-          const calculation = pricingService.calculatePrice(
-            product.dimensions.heightMm,
-            product.dimensions.widthMm,
-            item.lengthMm,
-            item.quantity,
-            item.pricePerM2,
-            item.quality
-          );
-
-          updatedItems.push({
-            id: generateId(),
-            productId: item.productId,
+          return {
+            id: generateId() as UUID,
+            productId: item.productId as UUID,
             heightMm: item.heightMm,
             widthMm: item.widthMm,
             lengthMm: item.lengthMm,
             quantity: item.quantity,
             quality: item.quality,
             pricePerM2: item.pricePerM2,
-            netTotal: calculation.finalTotal
-          });
-        }
+            netTotal,
+          };
+        });
+
+        const totals = calcOfferTotals(items, offer.vatPercent);
+        updates.items = items;
+        Object.assign(updates, totals);
       }
 
-      if (data.vatPercent !== undefined && data.vatPercent !== offer.getVatPercent()) {
-        changes.push(`VAT changed from ${offer.getVatPercent()}% to ${data.vatPercent}%`);
-        updatedVatPercent = data.vatPercent;
-      }
-
-      if (data.notes !== undefined && data.notes !== offer.getNotes()) {
-        changes.push('Notes updated');
-      }
-
-      const { netSum, vatAmount, grossSum } = calculateTotals(updatedItems, updatedVatPercent);
-
-      offer.update({
-        inquirySource: data.inquirySource,
-        inquiryContact: data.inquiryContact,
-        validUntil: data.validUntil ? new Date(data.validUntil) : undefined,
-        items: updatedItems,
-        netSum,
-        vatPercent: updatedVatPercent,
-        vatAmount,
-        grossSum,
-        notes: data.notes
-      }, changes);
-
+      offer = { ...offer, ...updates };
       await offerRepo.update(offer);
 
-      return reply.send({
-        success: true,
-        offer: offer.toJSON()
-      });
+      return { offer };
     }
-  });
+  );
 
-  // Change offer status
-  fastify.post('/:id/status', {
-    preHandler: requireUnlocked(),
-    handler: async (request: FastifyRequest<{ Params: { id: string }; Body: { status: string } }>, reply) => {
-      const offer = await offerRepo.findById(request.params.id);
+  // POST /api/offers/:id/status - Change offer status
+  fastify.post(
+    '/offers/:id/status',
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof ChangeStatusSchema> }>) => {
+      const data = ChangeStatusSchema.parse(request.body);
+      
+      let offer = await offerRepo.findById(request.params.id as UUID);
       if (!offer) {
-        return reply.code(404).send({ error: 'Offer not found' });
+        return fastify.httpErrors.notFound('Offer not found');
       }
 
-      const { status } = request.body;
+      offer = transitionOffer(offer, data.status as OfferStatus);
+      await offerRepo.update(offer);
 
-      try {
-        switch (status) {
-          case 'sent':
-            offer.markAsSent();
-            break;
-          case 'accepted':
-            offer.markAsAccepted();
-            break;
-          case 'rejected':
-            offer.markAsRejected();
-            break;
-          default:
-            return reply.code(400).send({ error: 'Invalid status' });
-        }
-
-        await offerRepo.update(offer);
-
-        return reply.send({
-          success: true,
-          status: offer.getStatus()
-        });
-      } catch (err: any) {
-        return reply.code(400).send({ error: err.message });
-      }
+      return { offer };
     }
-  });
+  );
 
-  // Get specific version
-  fastify.get('/:id/versions/:version', {
-    preHandler: requireUnlocked(),
-    handler: async (request: FastifyRequest<{ Params: { id: string; version: string } }>, reply) => {
-      const offer = await offerRepo.findById(request.params.id);
-      if (!offer) {
-        return reply.code(404).send({ error: 'Offer not found' });
-      }
-
-      const version = offer.getVersionByNumber(parseInt(request.params.version));
+  // GET /api/offers/:id/versions/:version - Get specific version
+  fastify.get(
+    '/offers/:id/versions/:version',
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Params: { id: string; version: string } }>) => {
+      const versions = await offerRepo.getVersionHistory(request.params.id as UUID);
+      const versionNum = parseInt(request.params.version);
+      const version = versions.find(v => v.version === versionNum);
+      
       if (!version) {
-        return reply.code(404).send({ error: 'Version not found' });
+        return fastify.httpErrors.notFound('Version not found');
       }
 
-      return reply.send({
-        success: true,
-        version
-      });
+      return { version };
     }
-  });
-};
+  );
+}

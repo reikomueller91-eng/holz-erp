@@ -1,9 +1,9 @@
-import { OrderRepository } from '../../infrastructure/repositories/OrderRepository';
-import { Product } from '../../domain/product/Product';
-import { PriceSuggestion, PriceCalculationResult, HistoricalPriceEntry } from '../types';
+import type { IOrderRepository } from '../../infrastructure/repositories/OrderRepository';
+import type { Product } from '../../domain/product/Product';
+import type { PriceSuggestion, PriceCalculationResult, HistoricalPriceEntry } from '../types';
+import type { UUID } from '../../shared/types';
 
 export interface IPricingService {
-  // Calculate with individual parameters
   calculatePrice(
     heightMm: number,
     widthMm: number,
@@ -13,7 +13,6 @@ export interface IPricingService {
     qualityOverride?: string
   ): PriceCalculationResult;
   
-  // Calculate using Product object
   calculatePriceForProduct(
     product: Product,
     lengthMm: number,
@@ -22,9 +21,9 @@ export interface IPricingService {
     qualityOverride?: string
   ): PriceCalculationResult;
   
-  getPriceHistory(productId: string, customerId?: string): Promise<HistoricalPriceEntry[]>;
+  getPriceHistory(productId: UUID, customerId?: UUID): Promise<HistoricalPriceEntry[]>;
   
-  suggestPrice(productId: string, basePrice: number, customerId?: string): Promise<PriceSuggestion>;
+  suggestPrice(productId: UUID, basePrice: number, customerId?: UUID): Promise<PriceSuggestion>;
   
   applyQuantityDiscount(basePrice: number, quantity: number, discounts: QuantityDiscount[]): number;
 }
@@ -44,7 +43,7 @@ export class PricingService implements IPricingService {
   private pricingConfig: PricingConfig;
   
   constructor(
-    private orderRepo: OrderRepository,
+    private orderRepo: IOrderRepository,
     config?: Partial<PricingConfig>
   ) {
     this.pricingConfig = {
@@ -59,10 +58,6 @@ export class PricingService implements IPricingService {
     };
   }
 
-  /**
-   * Calculate price based on area formula:
-   * (height × width) / divisor × length × quantity
-   */
   calculatePrice(
     heightMm: number,
     widthMm: number,
@@ -71,50 +66,32 @@ export class PricingService implements IPricingService {
     basePricePerM2: number,
     qualityOverride?: string
   ): PriceCalculationResult {
-    const areaMm2 = heightMm * widthMm;
-    const areaM2 = areaMm2 / this.pricingConfig.defaultDivisor;
+    // Area calculation: (height × width) / divisor × length × quantity
+    const areaM2 = (heightMm * widthMm / this.pricingConfig.defaultDivisor) * (lengthMm / 1000);
     
-    // Get price per m² (either current or adjusted for quality)
-    let pricePerM2 = basePricePerM2;
+    // Quality adjustment
+    const qualityFactor = this.getQualityFactor(qualityOverride || 'A');
+    const adjustedPrice = Math.round(basePricePerM2 * qualityFactor);
     
-    // Quality adjustment could modify the base price
-    if (qualityOverride) {
-      // Simple quality adjustment based on grade
-      pricePerM2 = this.adjustPriceForQuality(pricePerM2, qualityOverride);
-    }
+    // Quantity discount
+    const discountedPrice = this.applyQuantityDiscount(adjustedPrice, quantity, this.pricingConfig.quantityDiscounts);
     
-    // Calculate base price for one unit
-    const pricePerUnit = Math.round(areaM2 * lengthMm / 1000 * pricePerM2); // length in meters
-    
-    // Apply quantity discounts
-    const totalBeforeDiscount = pricePerUnit * quantity;
-    const discountedTotal = this.applyQuantityDiscount(
-      totalBeforeDiscount,
-      quantity,
-      this.pricingConfig.quantityDiscounts
-    );
-    
-    const discountAmount = totalBeforeDiscount - discountedTotal;
+    // Total calculation
+    const pricePerPiece = Math.round(areaM2 * discountedPrice);
+    const totalPrice = pricePerPiece * quantity;
     
     return {
-      areaMm2,
       areaM2,
-      pricePerM2,
-      lengthM: lengthMm / 1000,
-      quantity,
-      pricePerUnit,
-      totalBeforeDiscount,
-      discountAmount,
-      discountPercent: discountAmount > 0 
-        ? Math.round((discountAmount / totalBeforeDiscount) * 100) 
-        : 0,
-      finalTotal: discountedTotal
+      basePricePerM2,
+      adjustedPricePerM2: adjustedPrice,
+      finalPricePerM2: discountedPrice,
+      pricePerPiece,
+      totalPrice,
+      qualityGrade: qualityOverride || 'A',
+      quantityDiscount: adjustedPrice - discountedPrice,
     };
   }
 
-  /**
-   * Calculate price using Product object
-   */
   calculatePriceForProduct(
     product: Product,
     lengthMm: number,
@@ -128,122 +105,102 @@ export class PricingService implements IPricingService {
       lengthMm,
       quantity,
       basePricePerM2,
-      qualityOverride
+      qualityOverride || product.qualityGrade
     );
   }
 
-  /**
-   * Get historical prices for this product from previous orders
-   */
-  async getPriceHistory(
-    productId: string,
-    customerId?: string
-  ): Promise<HistoricalPriceEntry[]> {
-    const orders = await this.orderRepo.findByProduct(productId);
+  async getPriceHistory(productId: UUID, customerId?: UUID): Promise<HistoricalPriceEntry[]> {
+    let orders = await this.orderRepo.findByProduct(productId);
     
-    const entries: HistoricalPriceEntry[] = [];
-    
+    if (customerId) {
+      orders = orders.filter(o => o.customerId === customerId);
+    }
+
+    const history: HistoricalPriceEntry[] = [];
+
     for (const order of orders) {
-      const items = order.getItems().filter(item => 
-        item.productId === productId
-      );
-      
-      for (const item of items) {
-        entries.push({
-          date: order.getCreatedAt().toISOString(),
-          orderId: order.getId(),
-          customerId: order.getCustomerId(),
-          customerName: 'Customer ' + order.getCustomerId().slice(0, 8),
-          quality: item.quality,
-          lengthMm: item.lengthMm,
-          pricePerM2: item.pricePerM2,
-          quantity: item.quantity,
-          isReturningCustomer: customerId ? order.getCustomerId() === customerId : false
-        });
+      for (const item of order.items) {
+        if (item.productId === productId) {
+          history.push({
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            orderDate: order.createdAt,
+            customerId: order.customerId,
+            pricePerM2: item.pricePerM2,
+            quantity: item.quantity,
+            quality: item.quality,
+          });
+        }
       }
     }
-    
-    // Sort by date descending (newest first)
-    return entries.sort((a, b) => 
-      new Date(b.date).getTime() - new Date(a.date).getTime()
+
+    // Sort by date descending
+    return history.sort((a, b) => 
+      new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()
     );
   }
 
-  /**
-   * Suggest price based on history and current pricing
-   */
-  async suggestPrice(productId: string, basePrice: number, customerId?: string): Promise<PriceSuggestion> {
+  async suggestPrice(productId: UUID, basePrice: number, customerId?: UUID): Promise<PriceSuggestion> {
     const history = await this.getPriceHistory(productId, customerId);
-    const currentPrice = basePrice;
+
+    if (history.length === 0) {
+      return {
+        suggestedPrice: basePrice,
+        confidence: 'low',
+        reasoning: 'No historical data available',
+      };
+    }
+
+    // Calculate average of last 5 orders
+    const recentHistory = history.slice(0, 5);
+    const avgPrice = recentHistory.reduce((sum, h) => sum + h.pricePerM2, 0) / recentHistory.length;
     
-    // Calculate statistics from history
-    const prices = history.map(h => h.pricePerM2);
-    const avgPrice = prices.length > 0 
-      ? prices.reduce((a, b) => a + b, 0) / prices.length 
-      : currentPrice;
+    // Calculate variance
+    const variance = recentHistory.reduce((sum, h) => sum + Math.pow(h.pricePerM2 - avgPrice, 2), 0) / recentHistory.length;
+    const stdDev = Math.sqrt(variance);
     
-    const minPrice = prices.length > 0 ? Math.min(...prices) : currentPrice;
-    const maxPrice = prices.length > 0 ? Math.max(...prices) : currentPrice;
-    
-    // Check if this customer bought before
-    const previousPurchases = customerId 
-      ? history.filter(h => h.customerId === customerId)
-      : [];
-    
-    const suggestedPrice = previousPurchases.length > 0
-      ? previousPurchases[0].pricePerM2
-      : currentPrice;
-    
+    // Determine confidence based on variance
+    const coefficientOfVariation = stdDev / avgPrice;
+    const confidence: 'low' | 'medium' | 'high' = 
+      coefficientOfVariation > 0.2 ? 'low' :
+      coefficientOfVariation > 0.1 ? 'medium' :
+      'high';
+
     return {
-      currentPrice,
-      suggestedPrice,
-      averagePrice: Math.round(avgPrice),
-      minPrice,
-      maxPrice,
-      historyCount: history.length,
-      previousPurchases: previousPurchases.length,
-      recentHistory: history.slice(0, 10)
+      suggestedPrice: Math.round(avgPrice),
+      confidence,
+      reasoning: `Based on ${recentHistory.length} recent orders. Avg: ${Math.round(avgPrice)}¢/m², StdDev: ${Math.round(stdDev)}¢`,
+      historicalData: {
+        avgPrice: Math.round(avgPrice),
+        minPrice: Math.min(...recentHistory.map(h => h.pricePerM2)),
+        maxPrice: Math.max(...recentHistory.map(h => h.pricePerM2)),
+        sampleSize: recentHistory.length,
+      },
     };
   }
 
-  /**
-   * Apply quantity discounts
-   */
-  applyQuantityDiscount(
-    basePrice: number,
-    quantity: number,
-    discounts: QuantityDiscount[]
-  ): number {
-    // Sort discounts by minQuantity descending to get best discount first
-    const sortedDiscounts = [...discounts].sort((a, b) => 
-      b.minQuantity - a.minQuantity
-    );
-    
-    for (const discount of sortedDiscounts) {
-      if (quantity >= discount.minQuantity) {
-        return Math.round(basePrice * (1 - discount.discountPercent / 100));
-      }
+  applyQuantityDiscount(basePrice: number, quantity: number, discounts: QuantityDiscount[]): number {
+    // Find highest applicable discount
+    const applicableDiscounts = discounts
+      .filter(d => quantity >= d.minQuantity)
+      .sort((a, b) => b.discountPercent - a.discountPercent);
+
+    if (applicableDiscounts.length === 0) {
+      return basePrice;
     }
-    
-    return basePrice;
+
+    const discount = applicableDiscounts[0];
+    return Math.round(basePrice * (100 - discount.discountPercent) / 100);
   }
 
-  private adjustPriceForQuality(pricePerM2: number, quality: string): number {
-    const gradeValue = this.gradeToNumber(quality);
-    // Base grade C (3) as reference point
-    const adjustment = (gradeValue - 3) * 0.1;
-    return Math.round(pricePerM2 * (1 + adjustment));
-  }
-
-  private gradeToNumber(grade: string): number {
-    const grades: Record<string, number> = { 'A': 5, 'B': 4, 'C': 3, 'D': 2, 'E': 1 };
-    return grades[grade.toUpperCase()] || 3;
+  private getQualityFactor(quality: string): number {
+    const factors: Record<string, number> = {
+      'A': 1.0,
+      'B': 0.9,
+      'C': 0.8,
+      'D': 0.7,
+      'E': 0.6,
+    };
+    return factors[quality] || 1.0;
   }
 }
-
-export const createPricingService = (
-  orderRepo: OrderRepository,
-  config?: Partial<PricingConfig>
-): IPricingService => {
-  return new PricingService(orderRepo, config);
-};

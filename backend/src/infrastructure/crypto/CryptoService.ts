@@ -85,8 +85,14 @@ export class CryptoService implements ICryptoService {
     }
   }
 
-  serializeField(field: EncryptedField): string {
-    return JSON.stringify(field);
+  async serializeField<T>(obj: T): Promise<string> {
+    const encrypted = this.encryptJson(obj);
+    return JSON.stringify(encrypted);
+  }
+
+  async deserializeField<T>(stored: string): Promise<T> {
+    const field = this.parseField(stored);
+    return this.decryptJson<T>(field);
   }
 
   private getKey(): Buffer {

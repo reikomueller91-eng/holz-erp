@@ -1,38 +1,69 @@
 import type { UUID, ISODateTime, ISODate, OfferStatus } from '../../shared/types';
 import { InvalidTransitionError } from '../../shared/errors';
 
-export interface OfferLineItem {
+export interface OfferItem {
   id: UUID;
-  offerId: UUID;
   productId: UUID;
+  heightMm: number;
+  widthMm: number;
   lengthMm: number;
-  quantityPieces: number;
-  unitPricePerM2: number;
-  totalPrice: number;
+  quantity: number;
+  quality: string;
+  pricePerM2: number;
+  netTotal: number;
+}
+
+export interface OfferVersion {
+  version: number;
+  offerId: UUID;
+  status: OfferStatus;
+  items: OfferItem[];
+  sellerAddress: string;
+  customerAddress: string;
+  netSum: number;
+  vatPercent: number;
+  vatAmount: number;
+  grossSum: number;
   notes?: string;
-  sortOrder: number;
+  createdAt: ISODateTime;
+  createdBy?: string;
 }
 
 export interface Offer {
   id: UUID;
+  offerNumber: string;
   version: number;
   customerId: UUID;
   status: OfferStatus;
-  lineItems: OfferLineItem[];
+  date: ISODate;
   validUntil?: ISODate;
-  notes?: string; // decrypted
-  pdfPath?: string;
+  inquirySource: string;
+  inquiryContact?: string;
+  
+  // Business data
+  sellerAddress: string;
+  customerAddress: string;
+  items: OfferItem[];
+  netSum: number;
+  vatPercent: number;
+  vatAmount: number;
+  grossSum: number;
+  notes?: string;
+  
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
+  createdBy?: string;
+  updatedBy?: string;
 }
 
 // ─── Valid Status Transitions ────────────────────────────────────
 const VALID_TRANSITIONS: Record<OfferStatus, OfferStatus[]> = {
-  draft: ['sent', 'rejected'],
-  sent: ['accepted', 'rejected', 'expired'],
-  accepted: [],
+  draft: ['sent', 'cancelled'],
+  sent: ['accepted', 'rejected', 'cancelled'],
+  accepted: ['converted'],
   rejected: [],
-  expired: [],
+  cancelled: [],
+  converted: [],
 };
 
 export function transitionOffer(offer: Offer, to: OfferStatus): Offer {
@@ -47,6 +78,32 @@ export function transitionOffer(offer: Offer, to: OfferStatus): Offer {
   };
 }
 
-export function calcOfferTotal(offer: Offer): number {
-  return offer.lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
+export function createOfferVersion(offer: Offer): OfferVersion {
+  return {
+    version: offer.version,
+    offerId: offer.id,
+    status: offer.status,
+    items: offer.items,
+    sellerAddress: offer.sellerAddress,
+    customerAddress: offer.customerAddress,
+    netSum: offer.netSum,
+    vatPercent: offer.vatPercent,
+    vatAmount: offer.vatAmount,
+    grossSum: offer.grossSum,
+    notes: offer.notes,
+    createdAt: new Date().toISOString() as ISODateTime,
+    createdBy: offer.updatedBy,
+  };
+}
+
+export function calcOfferTotals(items: OfferItem[], vatPercent: number): {
+  netSum: number;
+  vatAmount: number;
+  grossSum: number;
+} {
+  const netSum = items.reduce((sum, item) => sum + item.netTotal, 0);
+  const vatAmount = Math.round(netSum * vatPercent) / 100;
+  const grossSum = netSum + vatAmount;
+  
+  return { netSum, vatAmount, grossSum };
 }

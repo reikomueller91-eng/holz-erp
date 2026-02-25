@@ -1,17 +1,18 @@
-import { Offer, OfferData, OfferVersion, OfferStatus } from '../../domain/models/Offer';
-import { IDatabase } from '../../application/ports/IDatabase';
-import { ICryptoService } from '../../application/ports/ICryptoService';
-import { EncryptedField } from '../../shared/types';
+import type { Offer, OfferItem, OfferVersion } from '../../domain/offer/Offer';
+import { transitionOffer, createOfferVersion } from '../../domain/offer/Offer';
+import type { IDatabase } from '../../application/ports/IDatabase';
+import type { ICryptoService } from '../../application/ports/ICryptoService';
+import type { UUID, OfferStatus } from '../../shared/types';
 
 export interface IOfferRepository {
-  findAll(options?: { status?: OfferStatus; customerId?: string; limit?: number; offset?: number }): Promise<Offer[]>;
-  findById(id: string): Promise<Offer | null>;
+  findAll(options?: { status?: OfferStatus; customerId?: UUID; limit?: number; offset?: number }): Promise<Offer[]>;
+  findById(id: UUID): Promise<Offer | null>;
   findByOfferNumber(offerNumber: string): Promise<Offer | null>;
-  findByCustomer(customerId: string): Promise<Offer[]>;
+  findByCustomer(customerId: UUID): Promise<Offer[]>;
   save(offer: Offer): Promise<void>;
   update(offer: Offer): Promise<void>;
-  getVersionHistory(offerId: string): Promise<OfferVersion[]>;
-  saveVersion(offerId: string, version: OfferVersion): Promise<void>;
+  getVersionHistory(offerId: UUID): Promise<OfferVersion[]>;
+  saveVersion(offerId: UUID, version: OfferVersion): Promise<void>;
 }
 
 interface OfferRow {
@@ -34,17 +35,7 @@ interface OfferRow {
 interface OfferEncryptedData {
   sellerAddress: string;
   customerAddress: string;
-  items: Array<{
-    id: string;
-    productId: string;
-    heightMm: number;
-    widthMm: number;
-    lengthMm: number;
-    quantity: number;
-    quality: string;
-    pricePerM2: number;
-    netTotal: number;
-  }>;
+  items: OfferItem[];
   netSum: number;
   vatPercent: number;
   vatAmount: number;
@@ -58,7 +49,6 @@ interface OfferVersionRow {
   encrypted_data: string;
   created_at: string;
   created_by?: string;
-  changes: string;
 }
 
 export class OfferRepository implements IOfferRepository {
@@ -67,7 +57,7 @@ export class OfferRepository implements IOfferRepository {
     private crypto: ICryptoService
   ) {}
 
-  async findAll(options: { status?: OfferStatus; customerId?: string; limit?: number; offset?: number } = {}): Promise<Offer[]> {
+  async findAll(options: { status?: OfferStatus; customerId?: UUID; limit?: number; offset?: number } = {}): Promise<Offer[]> {
     let sql = 'SELECT * FROM offers WHERE 1=1';
     const params: unknown[] = [];
 
@@ -92,190 +82,174 @@ export class OfferRepository implements IOfferRepository {
       }
     }
 
-    const rows = await this.db.query<OfferRow>(sql, params);
+    const rows = this.db.query<OfferRow>(sql, params);
     return Promise.all(rows.map(row => this.rowToOffer(row)));
   }
 
-  async findById(id: string): Promise<Offer | null> {
-    const row = await this.db.queryOne<OfferRow>(
-      'SELECT * FROM offers WHERE id = ?',
-      [id]
-    );
-    if (!row) return null;
-
-    const versions = await this.getVersionHistory(id);
-    return this.rowToOffer(row, versions);
+  async findById(id: UUID): Promise<Offer | null> {
+    const row = this.db.queryOne<OfferRow>('SELECT * FROM offers WHERE id = ?', [id]);
+    return row ? this.rowToOffer(row) : null;
   }
 
   async findByOfferNumber(offerNumber: string): Promise<Offer | null> {
-    const row = await this.db.queryOne<OfferRow>(
-      'SELECT * FROM offers WHERE offer_number = ?',
-      [offerNumber]
-    );
-    if (!row) return null;
-
-    const versions = await this.getVersionHistory(row.id);
-    return this.rowToOffer(row, versions);
+    const row = this.db.queryOne<OfferRow>('SELECT * FROM offers WHERE offer_number = ?', [offerNumber]);
+    return row ? this.rowToOffer(row) : null;
   }
 
-  async findByCustomer(customerId: string): Promise<Offer[]> {
-    const rows = await this.db.query<OfferRow>(
-      'SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at DESC',
-      [customerId]
-    );
+  async findByCustomer(customerId: UUID): Promise<Offer[]> {
+    const rows = this.db.query<OfferRow>('SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at DESC', [customerId]);
     return Promise.all(rows.map(row => this.rowToOffer(row)));
   }
 
   async save(offer: Offer): Promise<void> {
-    const props = offer.toJSON();
-    const payload = this.offerToEncryptedData(props);
-    const encrypted: EncryptedField = this.crypto.encryptJson(payload);
-    const encryptedData: string = this.crypto.serializeField(encrypted);
+    const encryptedData = await this.crypto.serializeField<OfferEncryptedData>({
+      sellerAddress: offer.sellerAddress,
+      customerAddress: offer.customerAddress,
+      items: offer.items,
+      netSum: offer.netSum,
+      vatPercent: offer.vatPercent,
+      vatAmount: offer.vatAmount,
+      grossSum: offer.grossSum,
+      notes: offer.notes,
+    });
 
-    await this.db.run(
-      `INSERT INTO offers (id, offer_number, version, status, date, valid_until, inquiry_source, inquiry_contact, customer_id, encrypted_data, created_at, updated_at, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    this.db.run(
+      `INSERT INTO offers (
+        id, offer_number, version, status, date, valid_until,
+        inquiry_source, inquiry_contact, customer_id, encrypted_data,
+        created_at, updated_at, created_by, updated_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        props.id,
-        props.offerNumber,
-        props.version,
-        props.status,
-        props.date.toISOString(),
-        props.validUntil?.toISOString() || null,
-        props.inquirySource,
-        props.inquiryContact || null,
-        props.customerId,
+        offer.id,
+        offer.offerNumber,
+        offer.version,
+        offer.status,
+        offer.date,
+        offer.validUntil ?? null,
+        offer.inquirySource,
+        offer.inquiryContact ?? null,
+        offer.customerId,
         encryptedData,
-        props.createdAt.toISOString(),
-        props.updatedAt.toISOString(),
-        props.createdBy || null,
-        props.updatedBy || null
+        offer.createdAt,
+        offer.updatedAt,
+        offer.createdBy ?? null,
+        offer.updatedBy ?? null,
       ]
     );
-
-    await this.saveVersion(props.id, {
-      version: props.version,
-      data: props,
-      createdAt: new Date(),
-      createdBy: props.createdBy,
-      changes: ['Initial version']
-    });
   }
 
   async update(offer: Offer): Promise<void> {
-    const props = offer.toJSON();
-    const payload = this.offerToEncryptedData(props);
-    const encrypted: EncryptedField = this.crypto.encryptJson(payload);
-    const encryptedData: string = this.crypto.serializeField(encrypted);
+    const encryptedData = await this.crypto.serializeField<OfferEncryptedData>({
+      sellerAddress: offer.sellerAddress,
+      customerAddress: offer.customerAddress,
+      items: offer.items,
+      netSum: offer.netSum,
+      vatPercent: offer.vatPercent,
+      vatAmount: offer.vatAmount,
+      grossSum: offer.grossSum,
+      notes: offer.notes,
+    });
 
-    await this.db.run(
-      `UPDATE offers 
-       SET version = ?, status = ?, date = ?, valid_until = ?, inquiry_source = ?, inquiry_contact = ?, customer_id = ?, encrypted_data = ?, updated_at = ?, updated_by = ?
-       WHERE id = ?`,
+    this.db.run(
+      `UPDATE offers SET
+        version = ?,
+        status = ?,
+        valid_until = ?,
+        encrypted_data = ?,
+        updated_at = ?,
+        updated_by = ?
+      WHERE id = ?`,
       [
-        props.version,
-        props.status,
-        props.date.toISOString(),
-        props.validUntil?.toISOString() || null,
-        props.inquirySource,
-        props.inquiryContact || null,
-        props.customerId,
+        offer.version,
+        offer.status,
+        offer.validUntil ?? null,
         encryptedData,
-        props.updatedAt.toISOString(),
-        props.updatedBy || null,
-        props.id
+        offer.updatedAt,
+        offer.updatedBy ?? null,
+        offer.id,
       ]
     );
-
-    const versions = offer.getVersionHistory();
-    if (versions.length > 0) {
-      const latestVersion = versions[versions.length - 1];
-      await this.saveVersion(props.id, latestVersion);
-    }
   }
 
-  async getVersionHistory(offerId: string): Promise<OfferVersion[]> {
-    const rows = await this.db.query<OfferVersionRow>(
+  async getVersionHistory(offerId: UUID): Promise<OfferVersion[]> {
+    const rows = this.db.query<OfferVersionRow>(
       'SELECT * FROM offer_versions WHERE offer_id = ? ORDER BY version ASC',
       [offerId]
     );
-
-    return rows.map(row => {
-      const field: EncryptedField = this.crypto.parseField(row.encrypted_data);
-      return {
-        version: row.version,
-        data: this.crypto.decryptJson(field),
-        createdAt: new Date(row.created_at),
-        createdBy: row.created_by,
-        changes: JSON.parse(row.changes)
-      };
-    });
+    return Promise.all(rows.map(row => this.rowToOfferVersion(row)));
   }
 
-  async saveVersion(offerId: string, version: OfferVersion): Promise<void> {
-    const encrypted: EncryptedField = this.crypto.encryptJson(version.data);
-    const encryptedData: string = this.crypto.serializeField(encrypted);
+  async saveVersion(offerId: UUID, version: OfferVersion): Promise<void> {
+    const encryptedData = await this.crypto.serializeField<Omit<OfferVersion, 'version' | 'offerId' | 'createdAt' | 'createdBy'>>({
+      status: version.status,
+      items: version.items,
+      sellerAddress: version.sellerAddress,
+      customerAddress: version.customerAddress,
+      netSum: version.netSum,
+      vatPercent: version.vatPercent,
+      vatAmount: version.vatAmount,
+      grossSum: version.grossSum,
+      notes: version.notes,
+    });
 
-    await this.db.run(
-      `INSERT OR REPLACE INTO offer_versions (offer_id, version, encrypted_data, created_at, created_by, changes)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+    this.db.run(
+      `INSERT INTO offer_versions (offer_id, version, encrypted_data, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?)`,
       [
         offerId,
         version.version,
         encryptedData,
-        version.createdAt.toISOString(),
-        version.createdBy || null,
-        JSON.stringify(version.changes)
+        version.createdAt,
+        version.createdBy ?? null,
       ]
     );
   }
 
-  private rowToOffer(row: OfferRow, versions: OfferVersion[] = []): Offer {
-    const field: EncryptedField = this.crypto.parseField(row.encrypted_data);
-    const data = this.crypto.decryptJson<OfferEncryptedData>(field);
-
-    return new Offer({
-      id: row.id,
+  private async rowToOffer(row: OfferRow): Promise<Offer> {
+    const decrypted = await this.crypto.deserializeField<OfferEncryptedData>(row.encrypted_data);
+    
+    return {
+      id: row.id as UUID,
       offerNumber: row.offer_number,
       version: row.version,
-      status: row.status as OfferData['status'],
-      date: new Date(row.date),
-      validUntil: row.valid_until ? new Date(row.valid_until) : undefined,
+      customerId: row.customer_id as UUID,
+      status: row.status as OfferStatus,
+      date: row.date,
+      validUntil: row.valid_until,
       inquirySource: row.inquiry_source,
       inquiryContact: row.inquiry_contact,
-      customerId: row.customer_id,
-      sellerAddress: data.sellerAddress,
-      customerAddress: data.customerAddress,
-      items: data.items,
-      netSum: data.netSum,
-      vatPercent: data.vatPercent,
-      vatAmount: data.vatAmount,
-      grossSum: data.grossSum,
-      notes: data.notes,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
+      sellerAddress: decrypted.sellerAddress,
+      customerAddress: decrypted.customerAddress,
+      items: decrypted.items,
+      netSum: decrypted.netSum,
+      vatPercent: decrypted.vatPercent,
+      vatAmount: decrypted.vatAmount,
+      grossSum: decrypted.grossSum,
+      notes: decrypted.notes,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
       createdBy: row.created_by,
-      updatedBy: row.updated_by
-    }, versions);
+      updatedBy: row.updated_by,
+    };
   }
 
-  private offerToEncryptedData(props: OfferData): OfferEncryptedData {
+  private async rowToOfferVersion(row: OfferVersionRow): Promise<OfferVersion> {
+    const decrypted = await this.crypto.deserializeField<Omit<OfferVersion, 'version' | 'offerId' | 'createdAt' | 'createdBy'>>(row.encrypted_data);
+    
     return {
-      sellerAddress: props.sellerAddress,
-      customerAddress: props.customerAddress,
-      items: props.items,
-      netSum: props.netSum,
-      vatPercent: props.vatPercent,
-      vatAmount: props.vatAmount,
-      grossSum: props.grossSum,
-      notes: props.notes
+      offerId: row.offer_id as UUID,
+      version: row.version,
+      status: decrypted.status,
+      items: decrypted.items,
+      sellerAddress: decrypted.sellerAddress,
+      customerAddress: decrypted.customerAddress,
+      netSum: decrypted.netSum,
+      vatPercent: decrypted.vatPercent,
+      vatAmount: decrypted.vatAmount,
+      grossSum: decrypted.grossSum,
+      notes: decrypted.notes,
+      createdAt: row.created_at,
+      createdBy: row.created_by,
     };
   }
 }
-
-export const createOfferRepository = (
-  db: IDatabase,
-  crypto: ICryptoService
-): IOfferRepository => {
-  return new OfferRepository(db, crypto);
-};

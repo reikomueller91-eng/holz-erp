@@ -1,13 +1,14 @@
-import { Order, OrderProps } from '../../domain/models/Order';
-import { IDatabase } from '../../application/ports/IDatabase';
-import { ICryptoService } from '../../application/ports/ICryptoService';
-import { EncryptedField } from '../../shared/types';
+import type { Order, OrderItem, ProductionStatus } from '../../domain/order/Order';
+import { transitionOrder, updateItemProduction } from '../../domain/order/Order';
+import type { IDatabase } from '../../application/ports/IDatabase';
+import type { ICryptoService } from '../../application/ports/ICryptoService';
+import type { UUID, OrderStatus } from '../../shared/types';
 
 export interface IOrderRepository {
-  findAll(options?: { status?: string; customerId?: string; limit?: number; offset?: number }): Promise<Order[]>;
-  findById(id: string): Promise<Order | null>;
-  findByProduct(productId: string): Promise<Order[]>;
-  findByOfferId(offerId: string): Promise<Order | null>;
+  findAll(options?: { status?: OrderStatus; customerId?: UUID; limit?: number; offset?: number }): Promise<Order[]>;
+  findById(id: UUID): Promise<Order | null>;
+  findByProduct(productId: UUID): Promise<Order[]>;
+  findByOfferId(offerId: UUID): Promise<Order | null>;
   findByOrderNumber(orderNumber: string): Promise<Order | null>;
   save(order: Order): Promise<void>;
   update(order: Order): Promise<void>;
@@ -26,24 +27,12 @@ interface OrderRow {
 }
 
 interface OrderEncryptedData {
-  items: Array<{
-    id: string;
-    productId: string;
-    heightMm: number;
-    widthMm: number;
-    lengthMm: number;
-    quantity: number;
-    quantityProduced: number;
-    quality: string;
-    pricePerM2: number;
-    netTotal: number;
-    productionStatus: string;
-  }>;
+  items: OrderItem[];
   netSum: number;
   vatPercent: number;
   vatAmount: number;
   grossSum: number;
-  productionStatus: string;
+  productionStatus: ProductionStatus;
   notes?: string;
 }
 
@@ -53,7 +42,7 @@ export class OrderRepository implements IOrderRepository {
     private crypto: ICryptoService
   ) {}
 
-  async findAll(options: { status?: string; customerId?: string; limit?: number; offset?: number } = {}): Promise<Order[]> {
+  async findAll(options: { status?: OrderStatus; customerId?: UUID; limit?: number; offset?: number } = {}): Promise<Order[]> {
     let sql = 'SELECT * FROM orders WHERE 1=1';
     const params: unknown[] = [];
 
@@ -78,136 +67,110 @@ export class OrderRepository implements IOrderRepository {
       }
     }
 
-    const rows = await this.db.query<OrderRow>(sql, params);
+    const rows = this.db.query<OrderRow>(sql, params);
     return Promise.all(rows.map(row => this.rowToOrder(row)));
   }
 
-  async findById(id: string): Promise<Order | null> {
-    const row = await this.db.queryOne<OrderRow>(
-      'SELECT * FROM orders WHERE id = ?',
-      [id]
-    );
-    if (!row) return null;
-    return this.rowToOrder(row);
+  async findById(id: UUID): Promise<Order | null> {
+    const row = this.db.queryOne<OrderRow>('SELECT * FROM orders WHERE id = ?', [id]);
+    return row ? this.rowToOrder(row) : null;
   }
 
-  async findByProduct(productId: string): Promise<Order[]> {
-    const rows = await this.db.query<OrderRow>(
-      'SELECT * FROM orders WHERE status IN (?, ?, ?) ORDER BY created_at DESC',
-      ['in_production', 'finished', 'invoiced']
-    );
-    
+  async findByProduct(productId: UUID): Promise<Order[]> {
+    const rows = this.db.query<OrderRow>('SELECT * FROM orders');
     const orders = await Promise.all(rows.map(row => this.rowToOrder(row)));
-    
     return orders.filter(order => 
-      order.getItems().some(item => item.productId === productId)
+      order.items.some(item => item.productId === productId)
     );
   }
 
-  async findByOfferId(offerId: string): Promise<Order | null> {
-    const row = await this.db.queryOne<OrderRow>(
-      'SELECT * FROM orders WHERE offer_id = ?',
-      [offerId]
-    );
-    if (!row) return null;
-    return this.rowToOrder(row);
+  async findByOfferId(offerId: UUID): Promise<Order | null> {
+    const row = this.db.queryOne<OrderRow>('SELECT * FROM orders WHERE offer_id = ?', [offerId]);
+    return row ? this.rowToOrder(row) : null;
   }
 
   async findByOrderNumber(orderNumber: string): Promise<Order | null> {
-    const row = await this.db.queryOne<OrderRow>(
-      'SELECT * FROM orders WHERE order_number = ?',
-      [orderNumber]
-    );
-    if (!row) return null;
-    return this.rowToOrder(row);
+    const row = this.db.queryOne<OrderRow>('SELECT * FROM orders WHERE order_number = ?', [orderNumber]);
+    return row ? this.rowToOrder(row) : null;
   }
 
   async save(order: Order): Promise<void> {
-    const props = order.toJSON();
-    const payload = this.orderToEncryptedData(props);
-    const encrypted: EncryptedField = this.crypto.encryptJson(payload);
-    const encryptedData: string = this.crypto.serializeField(encrypted);
+    const encryptedData = await this.crypto.serializeField<OrderEncryptedData>({
+      items: order.items,
+      netSum: order.netSum,
+      vatPercent: order.vatPercent,
+      vatAmount: order.vatAmount,
+      grossSum: order.grossSum,
+      productionStatus: order.productionStatus,
+      notes: order.notes,
+    });
 
-    await this.db.run(
-      `INSERT INTO orders (id, order_number, offer_id, status, customer_id, encrypted_data, created_at, updated_at, finished_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    this.db.run(
+      `INSERT INTO orders (
+        id, order_number, offer_id, status, customer_id, encrypted_data,
+        created_at, updated_at, finished_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        props.id,
-        props.orderNumber,
-        props.offerId || null,
-        props.status,
-        props.customerId,
+        order.id,
+        order.orderNumber,
+        order.offerId ?? null,
+        order.status,
+        order.customerId,
         encryptedData,
-        props.createdAt.toISOString(),
-        props.updatedAt.toISOString(),
-        props.finishedAt?.toISOString() || null
+        order.createdAt,
+        order.updatedAt,
+        order.finishedAt ?? null,
       ]
     );
   }
 
   async update(order: Order): Promise<void> {
-    const props = order.toJSON();
-    const payload = this.orderToEncryptedData(props);
-    const encrypted: EncryptedField = this.crypto.encryptJson(payload);
-    const encryptedData: string = this.crypto.serializeField(encrypted);
+    const encryptedData = await this.crypto.serializeField<OrderEncryptedData>({
+      items: order.items,
+      netSum: order.netSum,
+      vatPercent: order.vatPercent,
+      vatAmount: order.vatAmount,
+      grossSum: order.grossSum,
+      productionStatus: order.productionStatus,
+      notes: order.notes,
+    });
 
-    await this.db.run(
-      `UPDATE orders 
-       SET status = ?, customer_id = ?, encrypted_data = ?, updated_at = ?, finished_at = ?
-       WHERE id = ?`,
+    this.db.run(
+      `UPDATE orders SET
+        status = ?,
+        encrypted_data = ?,
+        updated_at = ?,
+        finished_at = ?
+      WHERE id = ?`,
       [
-        props.status,
-        props.customerId,
+        order.status,
         encryptedData,
-        props.updatedAt.toISOString(),
-        props.finishedAt?.toISOString() || null,
-        props.id
+        order.updatedAt,
+        order.finishedAt ?? null,
+        order.id,
       ]
     );
   }
 
-  private rowToOrder(row: OrderRow): Order {
-    const field: EncryptedField = this.crypto.parseField(row.encrypted_data);
-    const data = this.crypto.decryptJson<OrderEncryptedData>(field);
-
-    return new Order({
-      id: row.id,
-      orderNumber: row.order_number,
-      offerId: row.offer_id,
-      status: row.status as OrderProps['status'],
-      customerId: row.customer_id,
-      items: data.items.map(item => ({
-        ...item,
-        productionStatus: item.productionStatus as OrderProps['items'][0]['productionStatus']
-      })),
-      netSum: data.netSum,
-      vatPercent: data.vatPercent,
-      vatAmount: data.vatAmount,
-      grossSum: data.grossSum,
-      productionStatus: data.productionStatus as OrderProps['productionStatus'],
-      notes: data.notes,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
-      finishedAt: row.finished_at ? new Date(row.finished_at) : undefined
-    });
-  }
-
-  private orderToEncryptedData(props: OrderProps): OrderEncryptedData {
+  private async rowToOrder(row: OrderRow): Promise<Order> {
+    const decrypted = await this.crypto.deserializeField<OrderEncryptedData>(row.encrypted_data);
+    
     return {
-      items: props.items,
-      netSum: props.netSum,
-      vatPercent: props.vatPercent,
-      vatAmount: props.vatAmount,
-      grossSum: props.grossSum,
-      productionStatus: props.productionStatus,
-      notes: props.notes
+      id: row.id as UUID,
+      orderNumber: row.order_number,
+      offerId: row.offer_id as UUID | undefined,
+      status: row.status as OrderStatus,
+      customerId: row.customer_id as UUID,
+      items: decrypted.items,
+      netSum: decrypted.netSum,
+      vatPercent: decrypted.vatPercent,
+      vatAmount: decrypted.vatAmount,
+      grossSum: decrypted.grossSum,
+      productionStatus: decrypted.productionStatus,
+      notes: decrypted.notes,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      finishedAt: row.finished_at,
     };
   }
 }
-
-export const createOrderRepository = (
-  db: IDatabase,
-  crypto: ICryptoService
-): IOrderRepository => {
-  return new OrderRepository(db, crypto);
-};

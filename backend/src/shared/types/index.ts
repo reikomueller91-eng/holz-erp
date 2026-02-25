@@ -56,15 +56,18 @@ export const OFFER_STATUSES = [
   'sent',
   'accepted',
   'rejected',
-  'expired',
+  'cancelled',
+  'converted',
 ] as const;
 export type OfferStatus = (typeof OFFER_STATUSES)[number];
 
 export const ORDER_STATUSES = [
-  'pending',
+  'new',
   'in_production',
-  'ready',
-  'delivered',
+  'finished',
+  'invoiced',
+  'paid',
+  'picked_up',
   'cancelled',
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];

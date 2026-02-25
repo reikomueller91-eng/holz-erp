@@ -1,10 +1,10 @@
 import type { Product, PriceHistory } from '../../domain/product/Product';
-import type { UUID, PaginatedResult, WoodType, QualityGrade } from '../../shared/types';
+import type { UUID, WoodType, QualityGrade } from '../../shared/types';
 
 export interface ProductListOptions {
-  page?: number;
-  pageSize?: number;
-  includeInactive?: boolean;
+  limit?: number;
+  offset?: number;
+  isActive?: boolean;
   woodType?: WoodType;
   qualityGrade?: QualityGrade;
 }
@@ -15,14 +15,13 @@ export interface ProductListOptions {
  * Implemented by: infrastructure/repositories/ProductRepository
  */
 export interface IProductRepository {
-  findById(id: UUID): Product | undefined;
-  findAll(options?: ProductListOptions): PaginatedResult<Product>;
-  create(product: Product): Product;
-  update(id: UUID, updates: Partial<Omit<Product, 'id' | 'createdAt'>>): Product;
-  softDelete(id: UUID): void;
+  findById(id: UUID): Promise<Product | null>;
+  findAll(options?: ProductListOptions): Promise<Product[]>;
+  save(product: Product): Promise<void>;
+  update(product: Product): Promise<void>;
+  delete(id: UUID): Promise<void>;
 
   // Price history
-  getCurrentPrice(productId: UUID): PriceHistory | undefined;
-  getPriceHistory(productId: UUID): PriceHistory[];
-  addPriceEntry(entry: PriceHistory): PriceHistory;
+  getPriceHistory(productId: UUID): Promise<PriceHistory[]>;
+  addPriceHistory(entry: PriceHistory): Promise<void>;
 }

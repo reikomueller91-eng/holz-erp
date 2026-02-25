@@ -59,111 +59,6 @@ const MIGRATIONS: Migration[] = [
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_price_history_product_id ON price_history(product_id);
-
-      -- Offers
-      CREATE TABLE IF NOT EXISTS offers (
-        id TEXT PRIMARY KEY,
-        version INTEGER NOT NULL DEFAULT 1,
-        customer_id TEXT NOT NULL REFERENCES customers(id),
-        status TEXT NOT NULL DEFAULT 'draft',
-        valid_until TEXT,
-        encrypted_notes TEXT,
-        pdf_path TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_offers_customer_id ON offers(customer_id);
-      CREATE INDEX IF NOT EXISTS idx_offers_status ON offers(status);
-
-      -- Offer Line Items
-      CREATE TABLE IF NOT EXISTS offer_line_items (
-        id TEXT PRIMARY KEY,
-        offer_id TEXT NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
-        product_id TEXT NOT NULL REFERENCES products(id),
-        length_mm INTEGER NOT NULL,
-        quantity_pieces INTEGER NOT NULL,
-        unit_price_per_m2 REAL NOT NULL,
-        total_price REAL NOT NULL,
-        notes TEXT,
-        sort_order INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE INDEX IF NOT EXISTS idx_offer_line_items_offer_id ON offer_line_items(offer_id);
-
-      -- Orders
-      CREATE TABLE IF NOT EXISTS orders (
-        id TEXT PRIMARY KEY,
-        offer_id TEXT NOT NULL REFERENCES offers(id),
-        customer_id TEXT NOT NULL REFERENCES customers(id),
-        status TEXT NOT NULL DEFAULT 'pending',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders(customer_id);
-      CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
-
-      -- Production Jobs
-      CREATE TABLE IF NOT EXISTS production_jobs (
-        id TEXT PRIMARY KEY,
-        order_id TEXT NOT NULL REFERENCES orders(id),
-        line_item_ref TEXT NOT NULL,
-        product_snapshot TEXT NOT NULL,
-        target_quantity INTEGER NOT NULL,
-        produced_quantity INTEGER NOT NULL DEFAULT 0,
-        status TEXT NOT NULL DEFAULT 'queued',
-        notes TEXT,
-        started_at TEXT,
-        completed_at TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_production_jobs_order_id ON production_jobs(order_id);
-      CREATE INDEX IF NOT EXISTS idx_production_jobs_status ON production_jobs(status);
-
-      -- Invoices
-      CREATE TABLE IF NOT EXISTS invoices (
-        id TEXT PRIMARY KEY,
-        version INTEGER NOT NULL DEFAULT 1,
-        order_id TEXT NOT NULL REFERENCES orders(id),
-        customer_id TEXT NOT NULL REFERENCES customers(id),
-        status TEXT NOT NULL DEFAULT 'draft',
-        total_net REAL NOT NULL,
-        tax_rate REAL NOT NULL DEFAULT 0.19,
-        total_gross REAL NOT NULL,
-        due_date TEXT,
-        paid_at TEXT,
-        finalized_at TEXT,
-        pdf_path TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id);
-      CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
-
-      -- Invoice Line Items
-      CREATE TABLE IF NOT EXISTS invoice_line_items (
-        id TEXT PRIMARY KEY,
-        invoice_id TEXT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
-        product_id TEXT,
-        description TEXT NOT NULL,
-        quantity REAL NOT NULL,
-        unit TEXT NOT NULL,
-        unit_price REAL NOT NULL,
-        total_price REAL NOT NULL,
-        sort_order INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE INDEX IF NOT EXISTS idx_invoice_line_items_invoice_id ON invoice_line_items(invoice_id);
-    `,
-    down: `
-      DROP TABLE IF EXISTS invoice_line_items;
-      DROP TABLE IF EXISTS invoices;
-      DROP TABLE IF EXISTS production_jobs;
-      DROP TABLE IF EXISTS orders;
-      DROP TABLE IF EXISTS offer_line_items;
-      DROP TABLE IF EXISTS offers;
-      DROP TABLE IF EXISTS price_history;
-      DROP TABLE IF EXISTS products;
-      DROP TABLE IF EXISTS customers;
-      DROP TABLE IF EXISTS system_config;
     `,
   },
   {
@@ -172,6 +67,63 @@ const MIGRATIONS: Migration[] = [
       -- Add encrypted_data column to products (stores name + description encrypted).
       -- The existing name column is kept for DB-level filtering/logging.
       ALTER TABLE products ADD COLUMN encrypted_data TEXT;
+    `,
+  },
+  {
+    name: '003_offers_orders_schema',
+    up: `
+      -- Offers (complete schema for Phase 3)
+      CREATE TABLE IF NOT EXISTS offers (
+        id TEXT PRIMARY KEY,
+        offer_number TEXT NOT NULL UNIQUE,
+        version INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'draft',
+        date TEXT NOT NULL,
+        valid_until TEXT,
+        inquiry_source TEXT NOT NULL,
+        inquiry_contact TEXT,
+        customer_id TEXT NOT NULL REFERENCES customers(id),
+        encrypted_data TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        created_by TEXT,
+        updated_by TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_offers_customer_id ON offers(customer_id);
+      CREATE INDEX IF NOT EXISTS idx_offers_status ON offers(status);
+      CREATE INDEX IF NOT EXISTS idx_offers_offer_number ON offers(offer_number);
+
+      -- Offer Versions (for version history)
+      CREATE TABLE IF NOT EXISTS offer_versions (
+        offer_id TEXT NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        encrypted_data TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        created_by TEXT,
+        PRIMARY KEY (offer_id, version)
+      );
+
+      -- Orders
+      CREATE TABLE IF NOT EXISTS orders (
+        id TEXT PRIMARY KEY,
+        order_number TEXT NOT NULL UNIQUE,
+        offer_id TEXT REFERENCES offers(id),
+        customer_id TEXT NOT NULL REFERENCES customers(id),
+        status TEXT NOT NULL DEFAULT 'new',
+        encrypted_data TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        finished_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders(customer_id);
+      CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+      CREATE INDEX IF NOT EXISTS idx_orders_offer_id ON orders(offer_id);
+      CREATE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number);
+    `,
+    down: `
+      DROP TABLE IF EXISTS orders;
+      DROP TABLE IF NOT EXISTS offer_versions;
+      DROP TABLE IF EXISTS offers;
     `,
   },
 ];
