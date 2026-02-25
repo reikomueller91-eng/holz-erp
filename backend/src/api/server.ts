@@ -10,10 +10,16 @@ import { CryptoService } from '../infrastructure/crypto/CryptoService';
 import { keyStore } from '../infrastructure/crypto/KeyStore';
 import { CustomerRepository } from '../infrastructure/repositories/CustomerRepository';
 import { ProductRepository } from '../infrastructure/repositories/ProductRepository';
+import { OrderRepository } from '../infrastructure/repositories/OrderRepository';
+import { OfferRepository } from '../infrastructure/repositories/OfferRepository';
+import { PricingService } from '../application/services/PricingService';
 import { registerHealthRoutes } from './routes/health.routes';
 import { registerAuthRoutes } from './routes/auth.routes';
 import { registerCustomerRoutes } from './routes/customers';
-import { registerProductRoutes } from './routes/products';
+import { productRoutes } from './routes/products';
+import { orderRoutes } from './routes/orders';
+import { offerRoutes } from './routes/offers';
+import { pricingRoutes } from './routes/pricing';
 import { HolzError } from '../shared/errors';
 import { logger } from '../shared/utils/logger';
 
@@ -36,10 +42,13 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   // ─── Repositories ─────────────────────────────────────────────
   const customerRepository = new CustomerRepository(db, cryptoService);
   const productRepository = new ProductRepository(db, cryptoService);
+  const orderRepository = new OrderRepository(db, cryptoService);
+  const offerRepository = new OfferRepository(db, cryptoService);
 
   // ─── Application Services ──────────────────────────────────────
   const customerService = new CustomerService(customerRepository);
   const productService = new ProductService(productRepository);
+  const pricingService = new PricingService(orderRepository);
 
   // ─── Decorate server with shared services ─────────────────────
   server.decorate('db', db);
@@ -63,12 +72,24 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     timeWindow: '1 minute',
   });
 
+  // Decorate with services for routes
+  server.decorate('customerService', customerService);
+  server.decorate('productService', productService);
+  server.decorate('pricingService', pricingService);
+  server.decorate('customerRepository', customerRepository);
+  server.decorate('productRepository', productRepository);
+  server.decorate('orderRepository', orderRepository);
+  server.decorate('offerRepository', offerRepository);
+
   // ─── Routes ───────────────────────────────────────────────────
   server.register(async (app) => {
     registerHealthRoutes(app);
     registerAuthRoutes(app, { authService });
     registerCustomerRoutes(app, { customerService });
-    registerProductRoutes(app, { productService });
+    await productRoutes(app);
+    await orderRoutes(app);
+    await offerRoutes(app);
+    await pricingRoutes(app);
   }, { prefix: '/api' });
 
   // ─── Error Handler ────────────────────────────────────────────

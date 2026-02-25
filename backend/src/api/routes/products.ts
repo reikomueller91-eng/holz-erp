@@ -1,15 +1,9 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import type { ProductService, CreateProductInput, UpdateProductInput, SetPriceInput } from '../../application/services/ProductService';
+import { ProductService } from '../../application/services/ProductService';
 import type { UUID } from '../../shared/types';
 import { WOOD_TYPES, QUALITY_GRADES } from '../../shared/types';
-import { LockedError } from '../../shared/errors';
-
-interface ProductRouteDeps {
-  productService: ProductService;
-}
-
-// ─── Validation schemas ────────────────────────────────────────────
+import { requireUnlocked } from '../middleware/auth';
 
 const CreateProductBody = z.object({
   name: z.string().min(1).max(200),
@@ -34,137 +28,132 @@ const UpdateProductBody = z.object({
 
 const SetPriceBody = z.object({
   pricePerM2: z.number().positive(),
-  effectiveFrom: z.string().datetime().optional(),
+  effectiveFrom: z.string().optional(),
   reason: z.string().max(500).optional(),
 });
 
 const ListQuerySchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  includeInactive: z.coerce.boolean().default(false),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+  isActive: z.coerce.boolean().optional(),
   woodType: z.enum(WOOD_TYPES).optional(),
   qualityGrade: z.enum(QUALITY_GRADES).optional(),
 });
 
-// ─── Guard: require unlocked ────────────────────────────────────────
-
-function requireUnlocked(server: FastifyInstance): void {
-  if (!server.keyStore.isUnlocked()) {
-    throw new LockedError();
-  }
-}
-
-/**
- * Product CRUD + pricing routes.
- *
- * All endpoints require the system to be unlocked.
- * Registered at prefix /api → endpoints are /api/products/...
- */
-export function registerProductRoutes(
-  server: FastifyInstance,
-  deps: ProductRouteDeps,
-): void {
-  const { productService } = deps;
+export async function productRoutes(fastify: FastifyInstance) {
+  const productService = fastify.productService as ProductService;
 
   // GET /api/products
-  server.get('/products', async (request, reply) => {
-    requireUnlocked(server);
-    const query = ListQuerySchema.parse(request.query);
-    const result = productService.list({
-      page: query.page,
-      pageSize: query.pageSize,
-      includeInactive: query.includeInactive,
-      ...(query.woodType !== undefined ? { woodType: query.woodType } : {}),
-      ...(query.qualityGrade !== undefined ? { qualityGrade: query.qualityGrade } : {}),
-    });
-    return reply.send(result);
-  });
+  fastify.get(
+    '/products',
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Querystring: z.infer<typeof ListQuerySchema> }>) => {
+      const query = ListQuerySchema.parse(request.query);
+      const products = await productService.list(query);
+      return { products };
+    }
+  );
 
   // GET /api/products/:id
-  server.get<{ Params: { id: string } }>(
+  fastify.get(
     '/products/:id',
-    async (request, reply) => {
-      requireUnlocked(server);
-      const product = productService.getById(request.params.id as UUID);
-      const currentPrice = productService.getCurrentPrice(product.id);
-      return reply.send({ ...product, currentPricePerM2: currentPrice?.pricePerM2 ?? null });
-    },
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+      const product = await productService.getById(request.params.id as UUID);
+      const priceHistory = await productService.getPriceHistory(product.id);
+      const currentPrice = priceHistory[0]; // Most recent
+      
+      return {
+        product,
+        currentPricePerM2: currentPrice?.pricePerM2 ?? null,
+      };
+    }
   );
 
   // POST /api/products
-  server.post('/products', async (request, reply) => {
-    requireUnlocked(server);
-    const body = CreateProductBody.parse(request.body);
-    // Explicit construction required due to exactOptionalPropertyTypes: true
-    const input: CreateProductInput = {
-      name: body.name,
-      woodType: body.woodType,
-      qualityGrade: body.qualityGrade,
-      heightMm: body.heightMm,
-      widthMm: body.widthMm,
-      ...(body.description !== undefined ? { description: body.description } : {}),
-      ...(body.initialPricePerM2 !== undefined ? { initialPricePerM2: body.initialPricePerM2 } : {}),
-      ...(body.priceReason !== undefined ? { priceReason: body.priceReason } : {}),
-    };
-    const product = productService.create(input);
-    return reply.status(201).send(product);
-  });
+  fastify.post(
+    '/products',
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Body: z.infer<typeof CreateProductBody> }>) => {
+      const body = CreateProductBody.parse(request.body);
+      const product = await productService.create(body);
 
-  // PUT /api/products/:id
-  server.put<{ Params: { id: string } }>(
-    '/products/:id',
-    async (request, reply) => {
-      requireUnlocked(server);
-      const body = UpdateProductBody.parse(request.body);
-      // Explicit construction required due to exactOptionalPropertyTypes: true
-      const input: UpdateProductInput = {
-        ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(body.woodType !== undefined ? { woodType: body.woodType } : {}),
-        ...(body.qualityGrade !== undefined ? { qualityGrade: body.qualityGrade } : {}),
-        ...(body.heightMm !== undefined ? { heightMm: body.heightMm } : {}),
-        ...(body.widthMm !== undefined ? { widthMm: body.widthMm } : {}),
-        ...(body.description !== undefined ? { description: body.description } : {}),
-        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
-      };
-      const product = productService.update(request.params.id as UUID, input);
-      return reply.send(product);
-    },
+      // Add initial price if provided
+      if (body.initialPricePerM2) {
+        await productService.addPrice({
+          productId: product.id,
+          pricePerM2: body.initialPricePerM2,
+          effectiveFrom: new Date().toISOString(),
+          reason: body.priceReason,
+        });
+      }
+
+      return { product };
+    }
   );
 
-  // DELETE /api/products/:id  (soft delete)
-  server.delete<{ Params: { id: string } }>(
+  // PUT /api/products/:id
+  fastify.put(
     '/products/:id',
-    async (request, reply) => {
-      requireUnlocked(server);
-      productService.delete(request.params.id as UUID);
-      return reply.status(204).send();
-    },
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof UpdateProductBody> }>) => {
+      const body = UpdateProductBody.parse(request.body);
+      
+      const updates: any = {};
+      if (body.name !== undefined) updates.name = body.name;
+      if (body.woodType !== undefined) updates.woodType = body.woodType;
+      if (body.qualityGrade !== undefined) updates.qualityGrade = body.qualityGrade;
+      if (body.description !== undefined) updates.description = body.description;
+      if (body.isActive !== undefined) updates.isActive = body.isActive;
+      
+      if (body.heightMm !== undefined || body.widthMm !== undefined) {
+        const current = await productService.getById(request.params.id as UUID);
+        updates.dimensions = {
+          heightMm: body.heightMm ?? current.dimensions.heightMm,
+          widthMm: body.widthMm ?? current.dimensions.widthMm,
+        };
+      }
+
+      const product = await productService.update(request.params.id as UUID, updates);
+      return { product };
+    }
+  );
+
+  // DELETE /api/products/:id
+  fastify.delete(
+    '/products/:id',
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+      await productService.delete(request.params.id as UUID);
+      return { success: true };
+    }
   );
 
   // GET /api/products/:id/price-history
-  server.get<{ Params: { id: string } }>(
+  fastify.get(
     '/products/:id/price-history',
-    async (request, reply) => {
-      requireUnlocked(server);
-      const history = productService.getPriceHistory(request.params.id as UUID);
-      return reply.send({ data: history });
-    },
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+      const history = await productService.getPriceHistory(request.params.id as UUID);
+      return { history };
+    }
   );
 
-  // POST /api/products/:id/price  — set new price (closes previous)
-  server.post<{ Params: { id: string } }>(
+  // POST /api/products/:id/price
+  fastify.post(
     '/products/:id/price',
-    async (request, reply) => {
-      requireUnlocked(server);
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof SetPriceBody> }>) => {
       const body = SetPriceBody.parse(request.body);
-      // Explicit construction required due to exactOptionalPropertyTypes: true
-      const input: SetPriceInput = {
+      
+      const entry = await productService.addPrice({
+        productId: request.params.id as UUID,
         pricePerM2: body.pricePerM2,
-        ...(body.effectiveFrom !== undefined ? { effectiveFrom: body.effectiveFrom } : {}),
-        ...(body.reason !== undefined ? { reason: body.reason } : {}),
-      };
-      const entry = productService.setPrice(request.params.id as UUID, input);
-      return reply.status(201).send(entry);
-    },
+        effectiveFrom: body.effectiveFrom || new Date().toISOString(),
+        reason: body.reason,
+      });
+
+      return { entry };
+    }
   );
 }

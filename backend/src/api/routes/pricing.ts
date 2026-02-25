@@ -1,133 +1,82 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { IPricingService } from '../../application/services/PricingService';
+import { PricingService } from '../../application/services/PricingService';
+import type { UUID } from '../../shared/types';
 import { requireUnlocked } from '../middleware/auth';
 
 const CalculatePriceSchema = z.object({
-  productId: z.string(),
+  heightMm: z.number().int().positive(),
+  widthMm: z.number().int().positive(),
   lengthMm: z.number().int().positive(),
   quantity: z.number().int().positive(),
-  pricePerM2: z.number().positive(),
-  qualityOverride: z.string().optional()
+  basePricePerM2: z.number().positive(),
+  quality: z.string().optional(),
 });
 
-const PriceSuggestionSchema = z.object({
+const PriceHistorySchema = z.object({
   productId: z.string(),
-  customerId: z.string().optional()
+  customerId: z.string().optional(),
 });
 
-export const pricingRoutes = (
-  pricingService: IPricingService
-) => async (fastify: FastifyInstance): Promise<void> => {
-  
-  // Calculate price
-  fastify.post('/calculate', {
-    preHandler: requireUnlocked(),
-    schema: {
-      body: {
-        type: 'object',
-        required: ['productId', 'lengthMm', 'quantity', 'pricePerM2'],
-        properties: {
-          productId: { type: 'string' },
-          lengthMm: { type: 'number' },
-          quantity: { type: 'number' },
-          pricePerM2: { type: 'number' },
-          qualityOverride: { type: 'string' }
-        }
-      }
-    },
-    handler: async (request, reply) => {
-      const result = CalculatePriceSchema.safeParse(request.body);
-      if (!result.success) {
-        return reply.code(400).send({ error: 'Invalid input', details: result.error.errors });
-      }
+const SuggestPriceSchema = z.object({
+  productId: z.string(),
+  basePrice: z.number().positive(),
+  customerId: z.string().optional(),
+});
 
-      try {
-        // Get product from product service/repo
-        const product = await fastify.productRepo.findById(result.data.productId);
-        if (!product) {
-          return reply.code(404).send({ error: 'Product not found' });
-        }
+export async function pricingRoutes(fastify: FastifyInstance) {
+  const pricingService = fastify.pricingService as PricingService;
 
-        const calculation = pricingService.calculatePriceForProduct(
-          product,
-          result.data.lengthMm,
-          result.data.quantity,
-          result.data.pricePerM2,
-          result.data.qualityOverride
-        );
+  // POST /api/pricing/calculate
+  fastify.post(
+    '/pricing/calculate',
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Body: z.infer<typeof CalculatePriceSchema> }>) => {
+      const data = CalculatePriceSchema.parse(request.body);
+      
+      const result = pricingService.calculatePrice(
+        data.heightMm,
+        data.widthMm,
+        data.lengthMm,
+        data.quantity,
+        data.basePricePerM2,
+        data.quality
+      );
 
-        return reply.send({
-          success: true,
-          calculation
-        });
-      } catch (err) {
-        request.log.error(err);
-        return reply.code(500).send({ error: 'Calculation failed' });
-      }
+      return { result };
     }
-  });
+  );
 
-  // Get price history for product
-  fastify.post('/history', {
-    preHandler: requireUnlocked(),
-    handler: async (request, reply) => {
-      const result = PriceSuggestionSchema.safeParse(request.body);
-      if (!result.success) {
-        return reply.code(400).send({ error: 'Invalid input' });
-      }
+  // POST /api/pricing/history
+  fastify.post(
+    '/pricing/history',
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Body: z.infer<typeof PriceHistorySchema> }>) => {
+      const data = PriceHistorySchema.parse(request.body);
+      
+      const history = await pricingService.getPriceHistory(
+        data.productId as UUID,
+        data.customerId as UUID | undefined
+      );
 
-      try {
-        const history = await pricingService.getPriceHistory(
-          result.data.productId,
-          result.data.customerId
-        );
-
-        return reply.send({
-          success: true,
-          history
-        });
-      } catch (err) {
-        request.log.error(err);
-        return reply.code(500).send({ error: 'Failed to get history' });
-      }
+      return { history };
     }
-  });
+  );
 
-  // Get price suggestion
-  fastify.post('/suggest', {
-    preHandler: requireUnlocked(),
-    handler: async (request, reply) => {
-      const result = PriceSuggestionSchema.safeParse(request.body);
-      if (!result.success) {
-        return reply.code(400).send({ error: 'Invalid input' });
-      }
+  // POST /api/pricing/suggest
+  fastify.post(
+    '/pricing/suggest',
+    { preHandler: requireUnlocked },
+    async (request: FastifyRequest<{ Body: z.infer<typeof SuggestPriceSchema> }>) => {
+      const data = SuggestPriceSchema.parse(request.body);
+      
+      const suggestion = await pricingService.suggestPrice(
+        data.productId as UUID,
+        data.basePrice,
+        data.customerId as UUID | undefined
+      );
 
-      try {
-        // Get product current price (would need ProductService/Repo method)
-        // For now using a default or the route would need pricePerM2 added to schema
-        const basePrice = 100; // Placeholder - should get from product price history
-
-        const suggestion = await pricingService.suggestPrice(
-          result.data.productId,
-          basePrice,
-          result.data.customerId
-        );
-
-        return reply.send({
-          success: true,
-          suggestion
-        });
-      } catch (err) {
-        request.log.error(err);
-        return reply.code(500).send({ error: 'Failed to get suggestion' });
-      }
+      return { suggestion };
     }
-  });
-};
-
-declare module 'fastify' {
-  interface FastifyInstance {
-    productRepo: any;
-  }
+  );
 }
