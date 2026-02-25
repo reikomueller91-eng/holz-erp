@@ -5,8 +5,8 @@
 - Phase 1: Architecture + Docker + Backend skeleton ✅ Complete
 - Phase 2: Customer, Product, Auth, Crypto ✅ Complete  
 - Phase 3: Pricing, Offers, Orders ✅ Complete
-- Phase 4: Invoice system + PDF ⏳ Planned
-- Phase 5: Production UI (keypad-optimized) ⏳ Planned
+- Phase 4: Invoice system + PDF ✅ Complete
+- Phase 5: Production UI (keypad-optimized) ✅ Complete
 - Phase 6: React Frontend ⏳ Planned
 - Phase 7: Kleinanzeigen Integration ⏳ Planned
 
