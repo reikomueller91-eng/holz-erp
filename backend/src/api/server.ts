@@ -12,6 +12,7 @@ import { CustomerRepository } from '../infrastructure/repositories/CustomerRepos
 import { ProductRepository } from '../infrastructure/repositories/ProductRepository';
 import { OrderRepository } from '../infrastructure/repositories/OrderRepository';
 import { OfferRepository } from '../infrastructure/repositories/OfferRepository';
+import { InvoiceRepository } from '../infrastructure/repositories/InvoiceRepository';
 import { PricingService } from '../application/services/PricingService';
 import { registerHealthRoutes } from './routes/health.routes';
 import { registerAuthRoutes } from './routes/auth.routes';
@@ -20,6 +21,7 @@ import { productRoutes } from './routes/products';
 import { orderRoutes } from './routes/orders';
 import { offerRoutes } from './routes/offers';
 import { pricingRoutes } from './routes/pricing';
+import { invoiceRoutes } from './routes/invoices';
 import { HolzError } from '../shared/errors';
 import { logger } from '../shared/utils/logger';
 
@@ -31,7 +33,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const { db } = deps;
 
   const server = Fastify({
-    logger: logger as unknown as boolean, // reuse pino instance
+    logger: logger as unknown as boolean,
     trustProxy: true,
   });
 
@@ -44,6 +46,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const productRepository = new ProductRepository(db, cryptoService);
   const orderRepository = new OrderRepository(db, cryptoService);
   const offerRepository = new OfferRepository(db, cryptoService);
+  const invoiceRepository = new InvoiceRepository(db, cryptoService);
 
   // ─── Application Services ──────────────────────────────────────
   const customerService = new CustomerService(customerRepository);
@@ -58,7 +61,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   // ─── Plugins ──────────────────────────────────────────────────
   server.register(helmet, {
-    contentSecurityPolicy: false, // handled by Caddy
+    contentSecurityPolicy: false,
   });
 
   server.register(cors, {
@@ -80,6 +83,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   server.decorate('productRepository', productRepository);
   server.decorate('orderRepository', orderRepository);
   server.decorate('offerRepository', offerRepository);
+  server.decorate('invoiceRepository', invoiceRepository);
 
   // ─── Routes ───────────────────────────────────────────────────
   server.register(async (app) => {
@@ -90,6 +94,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     await orderRoutes(app);
     await offerRoutes(app);
     await pricingRoutes(app);
+    await invoiceRoutes(app);
   }, { prefix: '/api' });
 
   // ─── Error Handler ────────────────────────────────────────────
@@ -101,7 +106,6 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       });
     }
 
-    // Fastify validation errors
     if (error.validation) {
       return reply.status(400).send({
         error: 'VALIDATION_ERROR',
@@ -123,16 +127,4 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   return server;
-}
-
-// ─── Type augmentation ────────────────────────────────────────────
-declare module 'fastify' {
-  interface FastifyInstance {
-    db: IDatabase;
-    authService: AuthService;
-    cryptoService: CryptoService;
-    keyStore: typeof keyStore;
-    customerService: CustomerService;
-    productService: ProductService;
-  }
 }

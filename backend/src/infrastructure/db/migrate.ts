@@ -123,7 +123,49 @@ const MIGRATIONS: Migration[] = [
     down: `
       DROP TABLE IF EXISTS orders;
       DROP TABLE IF NOT EXISTS offer_versions;
-      DROP TABLE IF EXISTS offers;
+      DROP TABLE IF NOT EXISTS offers;
+    `,
+  },
+  {
+    name: '004_invoice_schema',
+    up: `
+      -- Invoices (Phase 4)
+      CREATE TABLE IF NOT EXISTS invoices (
+        id TEXT PRIMARY KEY,
+        invoice_number TEXT NOT NULL UNIQUE,
+        version INTEGER NOT NULL DEFAULT 1,
+        order_id TEXT NOT NULL REFERENCES orders(id),
+        customer_id TEXT NOT NULL REFERENCES customers(id),
+        status TEXT NOT NULL DEFAULT 'draft',
+        encrypted_data TEXT NOT NULL,
+        date TEXT NOT NULL,
+        due_date TEXT,
+        paid_at TEXT,
+        finalized_at TEXT,
+        pdf_path TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        created_by TEXT,
+        updated_by TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id);
+      CREATE INDEX IF NOT EXISTS idx_invoices_order_id ON invoices(order_id);
+      CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
+      CREATE INDEX IF NOT EXISTS idx_invoices_invoice_number ON invoices(invoice_number);
+
+      -- Invoice Versions (for version history)
+      CREATE TABLE IF NOT EXISTS invoice_versions (
+        invoice_id TEXT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        encrypted_data TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        created_by TEXT,
+        PRIMARY KEY (invoice_id, version)
+      );
+    `,
+    down: `
+      DROP TABLE IF EXISTS invoice_versions;
+      DROP TABLE IF EXISTS invoices;
     `,
   },
 ];

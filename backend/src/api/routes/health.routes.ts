@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { keyStore } from '../../infrastructure/crypto/KeyStore';
 
 export function registerHealthRoutes(server: FastifyInstance): void {
   server.get(
@@ -27,7 +28,7 @@ export function registerHealthRoutes(server: FastifyInstance): void {
   );
 
   server.get('/health/lock-state', async (_request, reply) => {
-    const state = server.authService.getState();
+    const state = keyStore.isUnlocked() ? 'unlocked' : 'locked';
     return reply.send({ state });
   });
 }
