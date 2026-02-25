@@ -69,7 +69,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full system design.
 | Phase 1: Architecture + Docker + Backend skeleton | ✅ Complete |
 | Phase 2: Domain models + Auth + Crypto + Customer/Product CRUD | ✅ Complete |
 | Phase 3: Pricing + Offer system + Order system | ✅ Complete |
-| Phase 4: Invoice system + PDF | ⏳ Planned |
+| Phase 4: Invoice system + PDF | ✅ Complete |
 | Phase 5: Production UI (keypad-optimized) | ⏳ Planned |
 | Phase 6: React frontend | ⏳ Planned |
 | Phase 7: Kleinanzeigen Integration | ⏳ Planned |
