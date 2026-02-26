@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, Phone, Mail, MapPin } from 'lucide-react'
+import { Plus, Edit2, Trash2, Phone, Mail, MapPin, AlertCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../lib/api'
 import { customerSourceLabels } from '../lib/utils'
@@ -15,13 +15,16 @@ export default function Customers() {
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null)
   const queryClient = useQueryClient()
 
-  const { data: customers, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
       const { data } = await api.get<Customer[]>('/customers')
       return data
     },
   })
+
+  // SICHERSTELLEN dass wir ein Array haben
+  const customers = Array.isArray(data) ? data : []
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/customers/${id}`),
@@ -30,12 +33,13 @@ export default function Customers() {
       toast.success('Kunde wurde gelöscht')
       setDeleteTarget(null)
     },
-    onError: () => {
-      toast.error('Fehler beim Löschen des Kunden')
+    onError: (error: any) => {
+      const message = error.response?.data?.message || 'Fehler beim Löschen'
+      toast.error(message)
     },
   })
 
-  const filteredCustomers = customers?.filter(c => 
+  const filteredCustomers = customers.filter(c => 
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.email?.toLowerCase().includes(search.toLowerCase()) ||
     c.phone?.toLowerCase().includes(search.toLowerCase())
@@ -56,6 +60,26 @@ export default function Customers() {
         }
       />
 
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-600" />
+          <div>
+            <p className="font-medium text-red-800">Fehler beim Laden</p>
+            <p className="text-sm text-red-600">
+              {(error as any).response?.data?.message || 'Bitte entsperren Sie das System zuerst'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!Array.isArray(data) && !error && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <p className="text-sm text-yellow-700">
+            Warnung: Ungültige Daten vom Server erhalten. Bitte Seite neu laden.
+          </p>
+        </div>
+      )}
+
       <SearchInput 
         value={search}
         onChange={setSearch}
@@ -65,14 +89,14 @@ export default function Customers() {
       <div className="card overflow-hidden">
         {isLoading ? (
           <LoadingState />
-        ) : filteredCustomers?.length === 0 ? (
+        ) : filteredCustomers.length === 0 ? (
           <EmptyState 
             message="Noch keine Kunden vorhanden"
             searchActive={!!search}
           />
         ) : (
           <div className="divide-y divide-gray-200">
-            {filteredCustomers?.map((customer) => (
+            {filteredCustomers.map((customer) => (
               <div key={customer.id} className="p-4 hover:bg-gray-50 transition-colors">
                 <div className="flex items-start justify-between">
                   <Link to={`/customers/${customer.id}`} className="flex-1">
@@ -125,16 +149,13 @@ export default function Customers() {
       </div>
 
       {showModal && (
-        <CustomerModal 
-          customer={editingCustomer}
-          onClose={() => setShowModal(false)}
-        />
+        <CustomerModal customer={editingCustomer} onClose={() => setShowModal(false)} />
       )}
 
       {deleteTarget && (
         <ConfirmDialog
           title="Kunde löschen"
-          message={`Möchten Sie den Kunden "${deleteTarget.name}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`}
+          message={`Möchten Sie den Kunden "${deleteTarget.name}" wirklich löschen?`}
           confirmLabel="Löschen"
           onConfirm={() => deleteMutation.mutate(deleteTarget.id)}
           onCancel={() => setDeleteTarget(null)}
@@ -167,11 +188,11 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] })
-      toast.success(customer ? 'Kunde wurde aktualisiert' : 'Kunde wurde erstellt')
+      toast.success(customer ? 'Kunde aktualisiert' : 'Kunde erstellt')
       onClose()
     },
-    onError: () => {
-      toast.error('Fehler beim Speichern')
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Fehler beim Speichern')
     },
   })
 
@@ -181,7 +202,7 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
       onClose={onClose}
       footer={
         <>
-          <button onClick={onClose} className="btn-secondary">Abbrechen</button>
+          <button onClick={onClose} className="btn-secondary" disabled={mutation.isPending}>Abbrechen</button>
           <button 
             onClick={() => mutation.mutate()}
             disabled={!formData.name || mutation.isPending}
@@ -200,7 +221,6 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             className="input"
-            required
           />
         </div>
         <div className="grid grid-cols-2 gap-4">
@@ -236,7 +256,7 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
           <label className="block text-sm font-medium text-gray-700 mb-1">Quelle</label>
           <select
             value={formData.source}
-            onChange={(e) => setFormData({ ...formData, source: e.target.value as any })}
+            onChange={(e) => setFormData({ ...formData, source: e.target.value })}
             className="input"
           >
             <option value="direct">Direkt</option>

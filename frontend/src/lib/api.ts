@@ -10,7 +10,6 @@ const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
-    // Add auth token if available
     return config
   },
   (error) => Promise.reject(error)
@@ -20,9 +19,12 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    console.error('API Error:', error.response?.status, error.response?.data)
+    
     if (error.response?.status === 401) {
-      // Handle unauthorized
-      window.location.href = '/login'
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }
