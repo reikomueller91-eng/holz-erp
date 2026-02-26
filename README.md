@@ -22,7 +22,7 @@
 | Backend | Node.js 20 + TypeScript + Fastify |
 | Database | SQLite (better-sqlite3, PostgreSQL-ready) |
 | Encryption | Argon2id + AES-256-GCM (Node built-in crypto) |
-| Frontend | React + Vite *(Phase 2)* |
+| Frontend | React 18 + TypeScript + Vite + Tailwind CSS |
 | Reverse Proxy | Caddy (auto HTTPS) |
 | Containers | Docker + Docker Compose |
 
@@ -34,13 +34,31 @@ cp .env.example .env
 # Edit .env with your settings
 
 # 2. Start
-docker compose up -d
+docker compose up -d --build
 
 # 3. Setup (first run — set your master password)
-curl -X POST https://your-domain/api/auth/setup \
+curl -X POST http://localhost/api/auth/setup \
   -H 'Content-Type: application/json' \
   -d '{"masterPassword":"your-secure-password"}'
+
+# 4. Open in browser
+# Frontend (Admin UI): http://localhost
+# Production UI: http://localhost/production
 ```
+
+## Frontend Features
+
+The React Admin UI provides:
+
+- 📊 **Dashboard** — Stats cards, revenue charts, production queue
+- 👥 **Customers** — Full CRUD with contact history
+- 📦 **Products** — Catalog with wood types, quality grades, pricing
+- 📝 **Offers** — Wizard with line items, PDF generation
+- 📋 **Orders** — Production tracking, status workflow
+- 💰 **Invoices** — Tax calculation, payment status, PDF export
+- 🏭 **Production** — Kanban board (Queued → In Progress → Done)
+- 📈 **Reports** — Analytics, top products, customer insights
+- ⚙️ **Settings** — Password change, data export
 
 ## Development
 
@@ -71,8 +89,10 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full system design.
 | Phase 3: Pricing + Offer system + Order system | ✅ Complete |
 | Phase 4: Invoice system + PDF | ✅ Complete |
 | Phase 5: Production UI (keypad-optimized) | ✅ Complete |
-| Phase 6: React frontend | ⏳ Planned |
+| Phase 6: React Admin Frontend | ✅ Complete |
 | Phase 7: Kleinanzeigen Integration | ⏳ Planned |
+| Phase 8: Mobile PWA + Offline | ⏳ Planned |
+| Phase 9: Multi-user + PostgreSQL | ⏳ Planned |
 
 ## License
 
