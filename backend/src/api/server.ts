@@ -24,6 +24,7 @@ import { pricingRoutes } from './routes/pricing';
 import { invoiceRoutes } from './routes/invoices';
 import { HolzError } from '../shared/errors';
 import { logger } from '../shared/utils/logger';
+import { ZodError } from 'zod';
 
 export interface ServerDeps {
   db: IDatabase;
@@ -99,6 +100,19 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   // ─── Error Handler ────────────────────────────────────────────
   server.setErrorHandler((error, _request, reply) => {
+    // Handle Zod validation errors
+    if (error instanceof ZodError) {
+      const issues = error.issues.map(issue => ({
+        field: issue.path.join('.'),
+        message: issue.message,
+      }));
+      return reply.status(400).send({
+        error: 'VALIDATION_ERROR',
+        message: issues[0]?.message || 'Validation failed',
+        details: issues,
+      });
+    }
+
     if (error instanceof HolzError) {
       return reply.status(error.statusCode).send({
         error: error.code,
