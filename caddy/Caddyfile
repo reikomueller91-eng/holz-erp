@@ -1,30 +1,57 @@
-# HolzERP – Caddyfile
-# Replace holz.example.com with your actual domain
+# HolzERP Caddy Configuration
+# Auto-HTTPS with local development support
 
-holz.example.com {
-    # Frontend (React SPA)
-    handle /* {
-        reverse_proxy frontend:80
-    }
+{
+    auto_https off
+}
 
-    # Backend API
-    handle /api/* {
-        reverse_proxy backend:3000
-    }
-
-    # Security headers
-    header {
-        X-Frame-Options "DENY"
-        X-Content-Type-Options "nosniff"
-        X-XSS-Protection "1; mode=block"
-        Referrer-Policy "strict-origin-when-cross-origin"
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        -Server
-    }
-
-    # Logs
+:80 {
+    # Log requests
     log {
         output stdout
         format json
+    }
+
+    # Headers
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        X-XSS-Protection "1; mode=block"
+    }
+
+    # Health check
+    respond /health 200 {
+        body "healthy"
+    }
+
+    # API routes go to backend
+    handle /api/* {
+        reverse_proxy backend:3000 {
+            header_up Host {host}
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-For {remote}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Production UI (Phase 5 keypad interface)
+    handle /production {
+        reverse_proxy frontend:80 {
+            header_up Host {host}
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-For {remote}
+            header_up X-Forwarded-Proto {scheme}
+            uri /production.html
+        }
+    }
+
+    # Everything else goes to frontend (React SPA)
+    handle {
+        reverse_proxy frontend:80 {
+            header_up Host {host}
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-For {remote}
+            header_up X-Forwarded-Proto {scheme}
+        }
     }
 }

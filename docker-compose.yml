@@ -1,10 +1,11 @@
 version: "3.9"
 
-# HolzERP – Production Docker Compose
+# HolzERP – Full Stack with React Frontend
 # Usage: docker compose up -d
+# Access: http://localhost
 
 services:
-  # ─── Reverse Proxy (TLS termination) ───────────────────────────
+  # ─── Reverse Proxy (Caddy) ───────────────────────────────────────
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -21,7 +22,7 @@ services:
     networks:
       - proxy
 
-  # ─── Backend API ────────────────────────────────────────────────
+  # ─── Backend API ─────────────────────────────────────────────────
   backend:
     build:
       context: ./backend
@@ -39,7 +40,6 @@ services:
     networks:
       - proxy
       - internal
-    # No external port exposure — Caddy proxies to this
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
       interval: 30s
@@ -47,15 +47,19 @@ services:
       retries: 3
       start_period: 10s
 
-  # ─── Frontend (React SPA) ───────────────────────────────────────
+  # ─── Frontend (React + Nginx) ────────────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      - NODE_ENV=production
     networks:
       - proxy
-    # Static files served by nginx inside the container
+    depends_on:
+      - backend
+    # Frontend is served via Caddy reverse proxy on port 80
 
 volumes:
   holz_data:
