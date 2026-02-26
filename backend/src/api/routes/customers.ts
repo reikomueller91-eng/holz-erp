@@ -25,9 +25,15 @@ const ContactInfoSchema = z.object({
   address: AddressSchema.optional(),
 });
 
+// Support both flat and nested contact info
 const CreateCustomerBody = z.object({
   name: z.string().min(1).max(200),
+  // Nested contactInfo (optional)
   contactInfo: ContactInfoSchema.optional(),
+  // Flat fields (for simpler frontend)
+  email: z.string().email().optional().or(z.literal('')),
+  phone: z.string().optional(),
+  address: z.string().optional(), // Simple string address
   notes: z.string().max(5000).optional(),
   source: z.enum(CUSTOMER_SOURCES).optional(),
   kleinanzeigenId: z.string().optional(),
@@ -36,6 +42,10 @@ const CreateCustomerBody = z.object({
 const UpdateCustomerBody = z.object({
   name: z.string().min(1).max(200).optional(),
   contactInfo: ContactInfoSchema.optional(),
+  // Flat fields
+  email: z.string().email().optional().or(z.literal('')),
+  phone: z.string().optional(),
+  address: z.string().optional(),
   notes: z.string().max(5000).optional(),
   source: z.enum(CUSTOMER_SOURCES).optional(),
   kleinanzeigenId: z.string().optional(),
@@ -56,13 +66,34 @@ function requireUnlocked(server: FastifyInstance): void {
   }
 }
 
+// Helper: merge flat fields into contactInfo
+function buildContactInfo(body: {
+  contactInfo?: { email?: string; phone?: string; address?: { street?: string; city?: string; postalCode?: string; country?: string } };
+  email?: string;
+  phone?: string;
+  address?: string;
+}): CustomerContactInfo | undefined {
+  const hasFlat = body.email || body.phone || body.address;
+  const hasNested = body.contactInfo;
+  
+  if (!hasFlat && !hasNested) return undefined;
+  
+  // Prefer nested, merge flat
+  const contactInfo: CustomerContactInfo = {
+    email: body.contactInfo?.email || body.email || undefined,
+    phone: body.contactInfo?.phone || body.phone || undefined,
+    address: body.contactInfo?.address || (body.address ? { street: body.address } : undefined),
+  };
+  
+  // Clean up empty strings
+  if (contactInfo.email === '') contactInfo.email = undefined;
+  if (contactInfo.phone === '') contactInfo.phone = undefined;
+  
+  return contactInfo;
+}
+
 /**
  * Customer CRUD routes.
- *
- * All endpoints require the system to be unlocked (master password
- * must have been POSTed to /api/auth/unlock first).
- *
- * Registered at prefix /api → endpoints are /api/customers/...
  */
 export function registerCustomerRoutes(
   server: FastifyInstance,
@@ -75,7 +106,7 @@ export function registerCustomerRoutes(
     requireUnlocked(server);
     const query = ListQuerySchema.parse(request.query);
     const result = customerService.list(query);
-    return reply.send(result);
+    return reply.send(result.data); // Return just the array for simplicity
   });
 
   // GET /api/customers/:id
@@ -92,16 +123,17 @@ export function registerCustomerRoutes(
   server.post('/customers', async (request, reply) => {
     requireUnlocked(server);
     const body = CreateCustomerBody.parse(request.body);
-    // Explicit construction required due to exactOptionalPropertyTypes: true
+    
+    const contactInfo = buildContactInfo(body);
+    
     const input: CreateCustomerInput = {
       name: body.name,
-      // Cast needed: Zod optional fields yield T|undefined, but exactOptionalPropertyTypes
-      // requires truly-absent optionals. Runtime behaviour is correct.
-      ...(body.contactInfo !== undefined ? { contactInfo: body.contactInfo as CustomerContactInfo } : {}),
+      ...(contactInfo ? { contactInfo } : {}),
       ...(body.notes !== undefined ? { notes: body.notes } : {}),
       ...(body.source !== undefined ? { source: body.source } : {}),
       ...(body.kleinanzeigenId !== undefined ? { kleinanzeigenId: body.kleinanzeigenId } : {}),
     };
+    
     const customer = customerService.create(input);
     return reply.status(201).send(customer);
   });
@@ -112,15 +144,18 @@ export function registerCustomerRoutes(
     async (request, reply) => {
       requireUnlocked(server);
       const body = UpdateCustomerBody.parse(request.body);
-      // Explicit construction required due to exactOptionalPropertyTypes: true
+      
+      const contactInfo = buildContactInfo(body);
+      
       const input: UpdateCustomerInput = {
         ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(body.contactInfo !== undefined ? { contactInfo: body.contactInfo as CustomerContactInfo } : {}),
+        ...(contactInfo ? { contactInfo } : {}),
         ...(body.notes !== undefined ? { notes: body.notes } : {}),
         ...(body.source !== undefined ? { source: body.source } : {}),
         ...(body.kleinanzeigenId !== undefined ? { kleinanzeigenId: body.kleinanzeigenId } : {}),
         ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
       };
+      
       const customer = customerService.update(request.params.id as UUID, input);
       return reply.send(customer);
     },

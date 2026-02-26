@@ -5,6 +5,7 @@ import type { UUID } from '../../shared/types';
 import { WOOD_TYPES, QUALITY_GRADES } from '../../shared/types';
 import { requireUnlocked } from '../middleware/auth';
 
+// Accept both field names for flexibility
 const CreateProductBody = z.object({
   name: z.string().min(1).max(200),
   woodType: z.enum(WOOD_TYPES),
@@ -12,7 +13,9 @@ const CreateProductBody = z.object({
   heightMm: z.number().int().positive(),
   widthMm: z.number().int().positive(),
   description: z.string().max(2000).optional(),
+  // Accept both field names
   initialPricePerM2: z.number().positive().optional(),
+  currentPricePerM2: z.number().positive().optional(),
   priceReason: z.string().optional(),
 });
 
@@ -24,6 +27,7 @@ const UpdateProductBody = z.object({
   widthMm: z.number().int().positive().optional(),
   description: z.string().max(2000).optional(),
   isActive: z.boolean().optional(),
+  currentPricePerM2: z.number().positive().optional(),
 });
 
 const SetPriceBody = z.object({
@@ -43,14 +47,30 @@ const ListQuerySchema = z.object({
 export async function productRoutes(fastify: FastifyInstance) {
   const productService = fastify.productService as ProductService;
 
-  // GET /api/products
+  // GET /api/products - return flat array for frontend
   fastify.get(
     '/products',
     { preHandler: requireUnlocked },
     async (request: FastifyRequest<{ Querystring: z.infer<typeof ListQuerySchema> }>) => {
       const query = ListQuerySchema.parse(request.query);
       const products = await productService.list(query);
-      return { products };
+      
+      // Flatten and add currentPricePerM2 to each product
+      const productsWithPrice = await Promise.all(
+        products.map(async (product) => {
+          const priceHistory = await productService.getPriceHistory(product.id);
+          const currentPrice = priceHistory[0];
+          return {
+            ...product,
+            // Flatten dimensions
+            heightMm: product.dimensions.heightMm,
+            widthMm: product.dimensions.widthMm,
+            currentPricePerM2: currentPrice?.pricePerM2 ?? 0,
+          };
+        })
+      );
+      
+      return productsWithPrice; // Return array directly
     }
   );
 
@@ -61,11 +81,13 @@ export async function productRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest<{ Params: { id: string } }>) => {
       const product = await productService.getById(request.params.id as UUID);
       const priceHistory = await productService.getPriceHistory(product.id);
-      const currentPrice = priceHistory[0]; // Most recent
+      const currentPrice = priceHistory[0];
       
       return {
-        product,
-        currentPricePerM2: currentPrice?.pricePerM2 ?? null,
+        ...product,
+        heightMm: product.dimensions.heightMm,
+        widthMm: product.dimensions.widthMm,
+        currentPricePerM2: currentPrice?.pricePerM2 ?? 0,
       };
     }
   );
@@ -78,17 +100,26 @@ export async function productRoutes(fastify: FastifyInstance) {
       const body = CreateProductBody.parse(request.body);
       const product = await productService.create(body);
 
-      // Add initial price if provided
-      if (body.initialPricePerM2) {
+      // Add initial price if provided (accept both field names)
+      const price = body.initialPricePerM2 ?? body.currentPricePerM2;
+      if (price) {
         await productService.addPrice({
           productId: product.id,
-          pricePerM2: body.initialPricePerM2,
+          pricePerM2: price,
           effectiveFrom: new Date().toISOString(),
           reason: body.priceReason,
         });
       }
 
-      return { product };
+      const priceHistory = await productService.getPriceHistory(product.id);
+      const currentPrice = priceHistory[0];
+
+      return {
+        ...product,
+        heightMm: product.dimensions.heightMm,
+        widthMm: product.dimensions.widthMm,
+        currentPricePerM2: currentPrice?.pricePerM2 ?? 0,
+      };
     }
   );
 
@@ -99,7 +130,7 @@ export async function productRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof UpdateProductBody> }>) => {
       const body = UpdateProductBody.parse(request.body);
       
-      const updates: any = {};
+      const updates: Record<string, unknown> = {};
       if (body.name !== undefined) updates.name = body.name;
       if (body.woodType !== undefined) updates.woodType = body.woodType;
       if (body.qualityGrade !== undefined) updates.qualityGrade = body.qualityGrade;
@@ -115,7 +146,26 @@ export async function productRoutes(fastify: FastifyInstance) {
       }
 
       const product = await productService.update(request.params.id as UUID, updates);
-      return { product };
+
+      // Update price if provided
+      if (body.currentPricePerM2 !== undefined) {
+        await productService.addPrice({
+          productId: product.id,
+          pricePerM2: body.currentPricePerM2,
+          effectiveFrom: new Date().toISOString(),
+          reason: 'Price update',
+        });
+      }
+
+      const priceHistory = await productService.getPriceHistory(product.id);
+      const currentPrice = priceHistory[0];
+
+      return {
+        ...product,
+        heightMm: product.dimensions.heightMm,
+        widthMm: product.dimensions.widthMm,
+        currentPricePerM2: currentPrice?.pricePerM2 ?? 0,
+      };
     }
   );
 
@@ -135,7 +185,7 @@ export async function productRoutes(fastify: FastifyInstance) {
     { preHandler: requireUnlocked },
     async (request: FastifyRequest<{ Params: { id: string } }>) => {
       const history = await productService.getPriceHistory(request.params.id as UUID);
-      return { history };
+      return history;
     }
   );
 
@@ -153,7 +203,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         reason: body.reason,
       });
 
-      return { entry };
+      return entry;
     }
   );
 }
