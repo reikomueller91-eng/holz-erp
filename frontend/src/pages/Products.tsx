@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, Euro, AlertCircle } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Plus, Edit2, Trash2, AlertCircle } from 'lucide-react'
 import api from '../lib/api'
 import { WOOD_TYPES, QUALITY_GRADES } from '../lib/utils'
 import { PageHeader, SearchInput, LoadingState, EmptyState, Modal, ConfirmDialog } from '../components/ui'
@@ -23,7 +22,6 @@ export default function Products() {
     },
   })
 
-  // SICHERSTELLEN dass wir ein Array haben
   const products = Array.isArray(data) ? data : []
 
   const deleteMutation = useMutation({
@@ -33,8 +31,9 @@ export default function Products() {
       toast.success('Produkt wurde gelöscht')
       setDeleteTarget(null)
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Fehler beim Löschen')
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } }
+      toast.error(err.response?.data?.message || 'Fehler beim Löschen')
     },
   })
 
@@ -64,7 +63,7 @@ export default function Products() {
           <div>
             <p className="font-medium text-red-800">Fehler beim Laden</p>
             <p className="text-sm text-red-600">
-              {(error as any).response?.data?.message || 'Bitte entsperren Sie das System'}
+              {(error as { response?: { data?: { message?: string } } }).response?.data?.message || 'Bitte entsperren Sie das System'}
             </p>
           </div>
         </div>
@@ -89,6 +88,7 @@ export default function Products() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Holzart</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Qualität</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Maße</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Preis/m²</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Aktionen</th>
               </tr>
             </thead>
@@ -99,6 +99,7 @@ export default function Products() {
                   <td className="px-6 py-4">{product.woodType}</td>
                   <td className="px-6 py-4">{product.qualityGrade}</td>
                   <td className="px-6 py-4">{product.heightMm}×{product.widthMm}</td>
+                  <td className="px-6 py-4">€{product.currentPricePerM2.toFixed(2)}</td>
                   <td className="px-6 py-4 text-right">
                     <button onClick={() => { setEditingProduct(product); setShowModal(true); }} className="p-2 text-gray-400 hover:text-primary-600">
                       <Edit2 className="w-4 h-4" />
@@ -115,7 +116,7 @@ export default function Products() {
       </div>
 
       {showModal && <ProductModal product={editingProduct} onClose={() => setShowModal(false)} />}
-      
+
       {deleteTarget && (
         <ConfirmDialog
           title="Produkt löschen"
@@ -155,8 +156,9 @@ function ProductModal({ product, onClose }: { product: Product | null; onClose: 
       toast.success(product ? 'Produkt aktualisiert' : 'Produkt erstellt')
       onClose()
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Fehler beim Speichern')
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } }
+      toast.error(err.response?.data?.message || 'Fehler beim Speichern')
     },
   })
 

@@ -8,6 +8,8 @@ import { PageHeader, SearchInput, LoadingState, EmptyState, Modal, ConfirmDialog
 import { toast } from '../stores/toastStore'
 import type { Customer } from '../types'
 
+type CustomerSource = 'direct' | 'kleinanzeigen' | 'referral' | 'other'
+
 export default function Customers() {
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
@@ -23,7 +25,6 @@ export default function Customers() {
     },
   })
 
-  // SICHERSTELLEN dass wir ein Array haben
   const customers = Array.isArray(data) ? data : []
 
   const deleteMutation = useMutation({
@@ -33,9 +34,9 @@ export default function Customers() {
       toast.success('Kunde wurde gelöscht')
       setDeleteTarget(null)
     },
-    onError: (error: any) => {
-      const message = error.response?.data?.message || 'Fehler beim Löschen'
-      toast.error(message)
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } }
+      toast.error(err.response?.data?.message || 'Fehler beim Löschen')
     },
   })
 
@@ -66,17 +67,9 @@ export default function Customers() {
           <div>
             <p className="font-medium text-red-800">Fehler beim Laden</p>
             <p className="text-sm text-red-600">
-              {(error as any).response?.data?.message || 'Bitte entsperren Sie das System zuerst'}
+              {(error as { response?: { data?: { message?: string } } }).response?.data?.message || 'Bitte entsperren Sie das System'}
             </p>
           </div>
-        </div>
-      )}
-
-      {!Array.isArray(data) && !error && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <p className="text-sm text-yellow-700">
-            Warnung: Ungültige Daten vom Server erhalten. Bitte Seite neu laden.
-          </p>
         </div>
       )}
 
@@ -90,10 +83,7 @@ export default function Customers() {
         {isLoading ? (
           <LoadingState />
         ) : filteredCustomers.length === 0 ? (
-          <EmptyState 
-            message="Noch keine Kunden vorhanden"
-            searchActive={!!search}
-          />
+          <EmptyState message="Noch keine Kunden vorhanden" searchActive={!!search} />
         ) : (
           <div className="divide-y divide-gray-200">
             {filteredCustomers.map((customer) => (
@@ -148,9 +138,7 @@ export default function Customers() {
         )}
       </div>
 
-      {showModal && (
-        <CustomerModal customer={editingCustomer} onClose={() => setShowModal(false)} />
-      )}
+      {showModal && <CustomerModal customer={editingCustomer} onClose={() => setShowModal(false)} />}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -175,7 +163,7 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
     phone: customer?.phone || '',
     address: customer?.address || '',
     notes: customer?.notes || '',
-    source: customer?.source || 'direct',
+    source: (customer?.source || 'direct') as CustomerSource,
   })
 
   const mutation = useMutation({
@@ -191,8 +179,9 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
       toast.success(customer ? 'Kunde aktualisiert' : 'Kunde erstellt')
       onClose()
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Fehler beim Speichern')
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } }
+      toast.error(err.response?.data?.message || 'Fehler beim Speichern')
     },
   })
 
@@ -256,7 +245,7 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
           <label className="block text-sm font-medium text-gray-700 mb-1">Quelle</label>
           <select
             value={formData.source}
-            onChange={(e) => setFormData({ ...formData, source: e.target.value })}
+            onChange={(e) => setFormData({ ...formData, source: e.target.value as CustomerSource })}
             className="input"
           >
             <option value="direct">Direkt</option>
