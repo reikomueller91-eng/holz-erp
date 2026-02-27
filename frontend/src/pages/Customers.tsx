@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, Phone, Mail, MapPin, AlertCircle } from 'lucide-react'
+import { Plus, Edit2, Trash2, Phone, Mail, MapPin, AlertCircle, WifiOff } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../lib/api'
 import { customerSourceLabels } from '../lib/utils'
@@ -10,6 +10,25 @@ import type { Customer } from '../types'
 
 type CustomerSource = 'direct' | 'kleinanzeigen' | 'referral' | 'other'
 
+// Hilfsfunktion für API-Fehler
+function getErrorMessage(error: unknown): string {
+  if (typeof error === 'object' && error !== null) {
+    const err = error as { 
+      response?: { data?: { message?: string; error?: string } }; 
+      message?: string;
+      code?: string;
+    }
+    // Axios Error
+    if (err.response?.data?.message) return err.response.data.message
+    if (err.response?.data?.error) return err.response.data.error
+    // Network Error
+    if (err.code === 'ERR_NETWORK') return 'Server nicht erreichbar. Bitte prüfen Sie die Verbindung.'
+    if (err.message?.includes('Network Error')) return 'Netzwerkfehler - Server offline?'
+    if (err.message) return err.message
+  }
+  return 'Ein unbekannter Fehler ist aufgetreten'
+}
+
 export default function Customers() {
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
@@ -17,12 +36,20 @@ export default function Customers() {
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null)
   const queryClient = useQueryClient()
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
-      const { data } = await api.get<Customer[]>('/customers')
-      return data
+      try {
+        const { data } = await api.get<Customer[]>('/customers')
+        console.log('Customers API response:', data)
+        return data
+      } catch (err) {
+        console.error('Customers API error:', err)
+        throw err
+      }
     },
+    retry: 1,
+    retryDelay: 1000,
   })
 
   const customers = Array.isArray(data) ? data : []
@@ -35,16 +62,36 @@ export default function Customers() {
       setDeleteTarget(null)
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } }
-      toast.error(err.response?.data?.message || 'Fehler beim Löschen')
+      toast.error(getErrorMessage(error))
     },
   })
 
   const filteredCustomers = customers.filter(c => 
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.email?.toLowerCase().includes(search.toLowerCase()) ||
-    c.phone?.toLowerCase().includes(search.toLowerCase())
+    c?.name?.toLowerCase().includes(search.toLowerCase()) ||
+    c?.email?.toLowerCase().includes(search.toLowerCase()) ||
+    c?.phone?.toLowerCase().includes(search.toLowerCase())
   )
+
+  // Netzwerkfehler anzeigen
+  if (error && !isLoading) {
+    const isNetworkError = (error as { code?: string }).code === 'ERR_NETWORK' || 
+                           getErrorMessage(error).includes('nicht erreichbar')
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Kunden" />
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+          {isNetworkError ? <WifiOff className="w-12 h-12 text-red-500 mx-auto mb-3" /> : <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />}
+          <h3 className="text-lg font-semibold text-red-800 mb-2">
+            {isNetworkError ? 'Server nicht erreichbar' : 'Fehler beim Laden'}
+          </h3>
+          <p className="text-red-600 mb-4">{getErrorMessage(error)}</p>
+          <button onClick={() => refetch()} className="btn-primary">
+            Erneut versuchen
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -60,18 +107,6 @@ export default function Customers() {
           </button>
         }
       />
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600" />
-          <div>
-            <p className="font-medium text-red-800">Fehler beim Laden</p>
-            <p className="text-sm text-red-600">
-              {(error as { response?: { data?: { message?: string } } }).response?.data?.message || 'Bitte entsperren Sie das System'}
-            </p>
-          </div>
-        </div>
-      )}
 
       <SearchInput 
         value={search}
@@ -138,12 +173,17 @@ export default function Customers() {
         )}
       </div>
 
-      {showModal && <CustomerModal customer={editingCustomer} onClose={() => setShowModal(false)} />}
+      {showModal && (
+        <CustomerModal 
+          customer={editingCustomer} 
+          onClose={() => setShowModal(false)} 
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
           title="Kunde löschen"
-          message={`Möchten Sie den Kunden "${deleteTarget.name}" wirklich löschen?`}
+          message={`Möchten Sie "${deleteTarget.name}" wirklich löschen?`}
           confirmLabel="Löschen"
           onConfirm={() => deleteMutation.mutate(deleteTarget.id)}
           onCancel={() => setDeleteTarget(null)}
@@ -165,25 +205,32 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
     notes: customer?.notes || '',
     source: (customer?.source || 'direct') as CustomerSource,
   })
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const mutation = useMutation({
-    mutationFn: async () => {
+  const handleSubmit = async () => {
+    if (!formData.name.trim()) {
+      toast.error('Name ist erforderlich')
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
       if (customer) {
         await api.put(`/customers/${customer.id}`, formData)
+        toast.success('Kunde aktualisiert')
       } else {
         await api.post('/customers', formData)
+        toast.success('Kunde erstellt')
       }
-    },
-    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] })
-      toast.success(customer ? 'Kunde aktualisiert' : 'Kunde erstellt')
       onClose()
-    },
-    onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } }
-      toast.error(err.response?.data?.message || 'Fehler beim Speichern')
-    },
-  })
+    } catch (error) {
+      console.error('Save error:', error)
+      toast.error(getErrorMessage(error))
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   return (
     <Modal
@@ -191,13 +238,13 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
       onClose={onClose}
       footer={
         <>
-          <button onClick={onClose} className="btn-secondary" disabled={mutation.isPending}>Abbrechen</button>
+          <button onClick={onClose} className="btn-secondary" disabled={isSubmitting}>Abbrechen</button>
           <button 
-            onClick={() => mutation.mutate()}
-            disabled={!formData.name || mutation.isPending}
+            onClick={handleSubmit}
+            disabled={!formData.name.trim() || isSubmitting}
             className="btn-primary"
           >
-            {mutation.isPending ? 'Speichern...' : 'Speichern'}
+            {isSubmitting ? 'Speichern...' : 'Speichern'}
           </button>
         </>
       }
@@ -210,6 +257,7 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             className="input"
+            disabled={isSubmitting}
           />
         </div>
         <div className="grid grid-cols-2 gap-4">
@@ -220,6 +268,7 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               className="input"
+              disabled={isSubmitting}
             />
           </div>
           <div>
@@ -229,6 +278,7 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
               value={formData.phone}
               onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
               className="input"
+              disabled={isSubmitting}
             />
           </div>
         </div>
@@ -239,6 +289,7 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
             onChange={(e) => setFormData({ ...formData, address: e.target.value })}
             className="input"
             rows={2}
+            disabled={isSubmitting}
           />
         </div>
         <div>
@@ -247,6 +298,7 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
             value={formData.source}
             onChange={(e) => setFormData({ ...formData, source: e.target.value as CustomerSource })}
             className="input"
+            disabled={isSubmitting}
           >
             <option value="direct">Direkt</option>
             <option value="kleinanzeigen">Kleinanzeigen</option>
@@ -261,6 +313,7 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
             onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
             className="input"
             rows={3}
+            disabled={isSubmitting}
           />
         </div>
       </div>

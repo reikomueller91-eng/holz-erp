@@ -1,11 +1,23 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, AlertCircle } from 'lucide-react'
+import { Plus, Edit2, Trash2, WifiOff, AlertCircle } from 'lucide-react'
 import api from '../lib/api'
 import { WOOD_TYPES, QUALITY_GRADES } from '../lib/utils'
 import { PageHeader, SearchInput, LoadingState, EmptyState, Modal, ConfirmDialog } from '../components/ui'
 import { toast } from '../stores/toastStore'
 import type { Product } from '../types'
+
+function getErrorMessage(error: unknown): string {
+  if (typeof error === 'object' && error !== null) {
+    const err = error as { response?: { data?: { message?: string; error?: string } }; message?: string; code?: string }
+    if (err.response?.data?.message) return err.response.data.message
+    if (err.response?.data?.error) return err.response.data.error
+    if (err.code === 'ERR_NETWORK') return 'Server nicht erreichbar'
+    if (err.message?.includes('Network')) return 'Netzwerkfehler'
+    if (err.message) return err.message
+  }
+  return 'Unbekannter Fehler'
+}
 
 export default function Products() {
   const [search, setSearch] = useState('')
@@ -14,12 +26,14 @@ export default function Products() {
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null)
   const queryClient = useQueryClient()
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['products'],
     queryFn: async () => {
       const { data } = await api.get<Product[]>('/products')
+      console.log('Products API response:', data)
       return data
     },
+    retry: 1,
   })
 
   const products = Array.isArray(data) ? data : []
@@ -28,58 +42,48 @@ export default function Products() {
     mutationFn: (id: string) => api.delete(`/products/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] })
-      toast.success('Produkt wurde gelöscht')
+      toast.success('Produkt gelöscht')
       setDeleteTarget(null)
     },
-    onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } }
-      toast.error(err.response?.data?.message || 'Fehler beim Löschen')
-    },
+    onError: (error) => toast.error(getErrorMessage(error)),
   })
 
   const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.woodType.toLowerCase().includes(search.toLowerCase())
+    p?.name?.toLowerCase().includes(search.toLowerCase()) ||
+    p?.woodType?.toLowerCase().includes(search.toLowerCase())
   )
+
+  if (error && !isLoading) {
+    const isNetwork = (error as { code?: string }).code === 'ERR_NETWORK'
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Produkte" />
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+          {isNetwork ? <WifiOff className="w-12 h-12 text-red-500 mx-auto mb-3" /> : <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />}
+          <h3 className="text-lg font-semibold text-red-800 mb-2">{isNetwork ? 'Server nicht erreichbar' : 'Fehler'}</h3>
+          <p className="text-red-600 mb-4">{getErrorMessage(error)}</p>
+          <button onClick={() => refetch()} className="btn-primary">Erneut versuchen</button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
       <PageHeader 
         title="Produkte"
         action={
-          <button 
-            onClick={() => { setEditingProduct(null); setShowModal(true); }}
-            className="btn-primary flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Neues Produkt
+          <button onClick={() => { setEditingProduct(null); setShowModal(true); }} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Neues Produkt
           </button>
         }
       />
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600" />
-          <div>
-            <p className="font-medium text-red-800">Fehler beim Laden</p>
-            <p className="text-sm text-red-600">
-              {(error as { response?: { data?: { message?: string } } }).response?.data?.message || 'Bitte entsperren Sie das System'}
-            </p>
-          </div>
-        </div>
-      )}
-
-      <SearchInput 
-        value={search}
-        onChange={setSearch}
-        placeholder="Produkte suchen..."
-      />
+      <SearchInput value={search} onChange={setSearch} placeholder="Produkte suchen..." />
 
       <div className="card overflow-hidden">
-        {isLoading ? (
-          <LoadingState />
-        ) : filteredProducts.length === 0 ? (
-          <EmptyState message="Noch keine Produkte vorhanden" searchActive={!!search} />
+        {isLoading ? <LoadingState /> : filteredProducts.length === 0 ? (
+          <EmptyState message="Noch keine Produkte" searchActive={!!search} />
         ) : (
           <table className="w-full">
             <thead className="bg-gray-50">
@@ -87,8 +91,6 @@ export default function Products() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Holzart</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Qualität</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Maße</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Preis/m²</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Aktionen</th>
               </tr>
             </thead>
@@ -98,8 +100,6 @@ export default function Products() {
                   <td className="px-6 py-4 font-medium">{product.name}</td>
                   <td className="px-6 py-4">{product.woodType}</td>
                   <td className="px-6 py-4">{product.qualityGrade}</td>
-                  <td className="px-6 py-4">{product.heightMm}×{product.widthMm}</td>
-                  <td className="px-6 py-4">€{product.currentPricePerM2.toFixed(2)}</td>
                   <td className="px-6 py-4 text-right">
                     <button onClick={() => { setEditingProduct(product); setShowModal(true); }} className="p-2 text-gray-400 hover:text-primary-600">
                       <Edit2 className="w-4 h-4" />
@@ -116,7 +116,6 @@ export default function Products() {
       </div>
 
       {showModal && <ProductModal product={editingProduct} onClose={() => setShowModal(false)} />}
-
       {deleteTarget && (
         <ConfirmDialog
           title="Produkt löschen"
@@ -138,29 +137,36 @@ function ProductModal({ product, onClose }: { product: Product | null; onClose: 
     name: product?.name || '',
     woodType: product?.woodType || 'Eiche',
     qualityGrade: product?.qualityGrade || 'A',
-    heightMm: product?.heightMm || 0,
-    widthMm: product?.widthMm || 0,
-    currentPricePerM2: product?.currentPricePerM2 || 0,
+    heightMm: product?.heightMm || 20,
+    widthMm: product?.widthMm || 100,
+    currentPricePerM2: product?.currentPricePerM2 || 50,
   })
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const mutation = useMutation({
-    mutationFn: async () => {
+  const handleSubmit = async () => {
+    if (!formData.name.trim()) {
+      toast.error('Name ist erforderlich')
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
       if (product) {
         await api.put(`/products/${product.id}`, formData)
+        toast.success('Produkt aktualisiert')
       } else {
         await api.post('/products', formData)
+        toast.success('Produkt erstellt')
       }
-    },
-    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] })
-      toast.success(product ? 'Produkt aktualisiert' : 'Produkt erstellt')
       onClose()
-    },
-    onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } }
-      toast.error(err.response?.data?.message || 'Fehler beim Speichern')
-    },
-  })
+    } catch (error) {
+      console.error('Save error:', error)
+      toast.error(getErrorMessage(error))
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   return (
     <Modal
@@ -168,9 +174,9 @@ function ProductModal({ product, onClose }: { product: Product | null; onClose: 
       onClose={onClose}
       footer={
         <>
-          <button onClick={onClose} className="btn-secondary" disabled={mutation.isPending}>Abbrechen</button>
-          <button onClick={() => mutation.mutate()} disabled={!formData.name || mutation.isPending} className="btn-primary">
-            {mutation.isPending ? 'Speichern...' : 'Speichern'}
+          <button onClick={onClose} className="btn-secondary" disabled={isSubmitting}>Abbrechen</button>
+          <button onClick={handleSubmit} disabled={!formData.name.trim() || isSubmitting} className="btn-primary">
+            {isSubmitting ? 'Speichern...' : 'Speichern'}
           </button>
         </>
       }
@@ -178,35 +184,35 @@ function ProductModal({ product, onClose }: { product: Product | null; onClose: 
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-          <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="input" />
+          <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="input" disabled={isSubmitting} />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Holzart</label>
-            <select value={formData.woodType} onChange={(e) => setFormData({ ...formData, woodType: e.target.value })} className="input">
+            <select value={formData.woodType} onChange={(e) => setFormData({ ...formData, woodType: e.target.value })} className="input" disabled={isSubmitting}>
               {WOOD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Qualität</label>
-            <select value={formData.qualityGrade} onChange={(e) => setFormData({ ...formData, qualityGrade: e.target.value })} className="input">
+            <select value={formData.qualityGrade} onChange={(e) => setFormData({ ...formData, qualityGrade: e.target.value })} className="input" disabled={isSubmitting}>
               {QUALITY_GRADES.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Höhe (mm)</label>
-            <input type="number" value={formData.heightMm} onChange={(e) => setFormData({ ...formData, heightMm: Number(e.target.value) })} className="input" />
+            <input type="number" value={formData.heightMm} onChange={(e) => setFormData({ ...formData, heightMm: Number(e.target.value) })} className="input" disabled={isSubmitting} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Breite (mm)</label>
-            <input type="number" value={formData.widthMm} onChange={(e) => setFormData({ ...formData, widthMm: Number(e.target.value) })} className="input" />
+            <input type="number" value={formData.widthMm} onChange={(e) => setFormData({ ...formData, widthMm: Number(e.target.value) })} className="input" disabled={isSubmitting} />
           </div>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Preis/m² (€)</label>
-          <input type="number" step="0.01" value={formData.currentPricePerM2} onChange={(e) => setFormData({ ...formData, currentPricePerM2: Number(e.target.value) })} className="input" />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Preis €/m²</label>
+            <input type="number" step="0.01" value={formData.currentPricePerM2} onChange={(e) => setFormData({ ...formData, currentPricePerM2: Number(e.target.value) })} className="input" disabled={isSubmitting} />
+          </div>
         </div>
       </div>
     </Modal>

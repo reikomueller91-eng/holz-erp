@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
 import { ToastContainer } from './components/ui/ToastContainer'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -25,7 +26,7 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   return (
-    <>
+    <ErrorBoundary>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={
@@ -34,23 +35,23 @@ function App() {
           </PrivateRoute>
         }>
           <Route index element={<Dashboard />} />
-          <Route path="customers" element={<Customers />} />
-          <Route path="customers/:id" element={<CustomerDetail />} />
-          <Route path="products" element={<Products />} />
-          <Route path="products/:id" element={<ProductDetail />} />
-          <Route path="offers" element={<Offers />} />
-          <Route path="offers/:id" element={<OfferDetail />} />
-          <Route path="orders" element={<Orders />} />
-          <Route path="orders/:id" element={<OrderDetail />} />
-          <Route path="invoices" element={<Invoices />} />
-          <Route path="invoices/:id" element={<InvoiceDetail />} />
-          <Route path="production" element={<Production />} />
-          <Route path="reports" element={<Reports />} />
-          <Route path="settings" element={<Settings />} />
+          <Route path="customers" element={<ErrorBoundary><Customers /></ErrorBoundary>} />
+          <Route path="customers/:id" element={<ErrorBoundary><CustomerDetail /></ErrorBoundary>} />
+          <Route path="products" element={<ErrorBoundary><Products /></ErrorBoundary>} />
+          <Route path="products/:id" element={<ErrorBoundary><ProductDetail /></ErrorBoundary>} />
+          <Route path="offers" element={<ErrorBoundary><Offers /></ErrorBoundary>} />
+          <Route path="offers/:id" element={<ErrorBoundary><OfferDetail /></ErrorBoundary>} />
+          <Route path="orders" element={<ErrorBoundary><Orders /></ErrorBoundary>} />
+          <Route path="orders/:id" element={<ErrorBoundary><OrderDetail /></ErrorBoundary>} />
+          <Route path="invoices" element={<ErrorBoundary><Invoices /></ErrorBoundary>} />
+          <Route path="invoices/:id" element={<ErrorBoundary><InvoiceDetail /></ErrorBoundary>} />
+          <Route path="production" element={<ErrorBoundary><Production /></ErrorBoundary>} />
+          <Route path="reports" element={<ErrorBoundary><Reports /></ErrorBoundary>} />
+          <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
         </Route>
       </Routes>
       <ToastContainer />
-    </>
+    </ErrorBoundary>
   )
 }
 
