@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Eye, Download, WifiOff, AlertCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../lib/api'
@@ -23,7 +23,6 @@ function getErrorMessage(error: unknown): string {
 export default function Offers() {
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
-  const queryClient = useQueryClient()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['offers'],
