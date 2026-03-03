@@ -22,8 +22,8 @@ export interface ICryptoService {
   parseField(stored: string): EncryptedField;
 
   /** Serialize EncryptedField → string for DB storage */
-  serializeField<T>(obj: T): Promise<string>;
+  serializeField<T>(obj: T): string;
 
   /** Deserialize stored encrypted string → decrypted object */
-  deserializeField<T>(stored: string): Promise<T>;
+  deserializeField<T>(stored: string): T;
 }

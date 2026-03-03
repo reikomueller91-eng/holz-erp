@@ -13,7 +13,7 @@ const TAG_LENGTH = 16;  // 128-bit auth tag
  * Key is retrieved from the KeyStore (throws LockedError if locked).
  */
 export class CryptoService implements ICryptoService {
-  constructor(private readonly keyStore: IKeyStore) {}
+  constructor(private readonly keyStore: IKeyStore) { }
 
   encrypt(plaintext: string): EncryptedField {
     const key = this.getKey();
@@ -85,12 +85,12 @@ export class CryptoService implements ICryptoService {
     }
   }
 
-  async serializeField<T>(obj: T): Promise<string> {
+  serializeField<T>(obj: T): string {
     const encrypted = this.encryptJson(obj);
     return JSON.stringify(encrypted);
   }
 
-  async deserializeField<T>(stored: string): Promise<T> {
+  deserializeField<T>(stored: string): T {
     const field = this.parseField(stored);
     return this.decryptJson<T>(field);
   }

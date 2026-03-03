@@ -40,7 +40,7 @@ export class OrderRepository implements IOrderRepository {
   constructor(
     private db: IDatabase,
     private crypto: ICryptoService
-  ) {}
+  ) { }
 
   async findAll(options: { status?: OrderStatus; customerId?: UUID; limit?: number; offset?: number } = {}): Promise<Order[]> {
     let sql = 'SELECT * FROM orders WHERE 1=1';
@@ -79,7 +79,7 @@ export class OrderRepository implements IOrderRepository {
   async findByProduct(productId: UUID): Promise<Order[]> {
     const rows = this.db.query<OrderRow>('SELECT * FROM orders');
     const orders = await Promise.all(rows.map(row => this.rowToOrder(row)));
-    return orders.filter(order => 
+    return orders.filter(order =>
       order.items.some(item => item.productId === productId)
     );
   }
@@ -95,7 +95,7 @@ export class OrderRepository implements IOrderRepository {
   }
 
   async save(order: Order): Promise<void> {
-    const encryptedData = await this.crypto.serializeField<OrderEncryptedData>({
+    const encryptedData = this.crypto.serializeField<OrderEncryptedData>({
       items: order.items,
       netSum: order.netSum,
       vatPercent: order.vatPercent,
@@ -125,7 +125,7 @@ export class OrderRepository implements IOrderRepository {
   }
 
   async update(order: Order): Promise<void> {
-    const encryptedData = await this.crypto.serializeField<OrderEncryptedData>({
+    const encryptedData = this.crypto.serializeField<OrderEncryptedData>({
       items: order.items,
       netSum: order.netSum,
       vatPercent: order.vatPercent,
@@ -153,8 +153,8 @@ export class OrderRepository implements IOrderRepository {
   }
 
   private async rowToOrder(row: OrderRow): Promise<Order> {
-    const decrypted = await this.crypto.deserializeField<OrderEncryptedData>(row.encrypted_data);
-    
+    const decrypted = this.crypto.deserializeField<OrderEncryptedData>(row.encrypted_data);
+
     return {
       id: row.id as UUID,
       orderNumber: row.order_number,

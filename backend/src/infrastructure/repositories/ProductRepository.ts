@@ -27,7 +27,7 @@ export class ProductRepository implements IProductRepository {
   constructor(
     private db: IDatabase,
     private crypto: ICryptoService
-  ) {}
+  ) { }
 
   async findAll(options?: ProductListOptions): Promise<Product[]> {
     let sql = 'SELECT * FROM products WHERE 1=1';
@@ -69,7 +69,7 @@ export class ProductRepository implements IProductRepository {
   }
 
   async save(product: Product): Promise<void> {
-    const encryptedData = await this.crypto.serializeField<ProductEncryptedData>({
+    const encryptedData = this.crypto.serializeField<ProductEncryptedData>({
       name: product.name,
       description: product.description,
     });
@@ -96,7 +96,7 @@ export class ProductRepository implements IProductRepository {
   }
 
   async update(product: Product): Promise<void> {
-    const encryptedData = await this.crypto.serializeField<ProductEncryptedData>({
+    const encryptedData = this.crypto.serializeField<ProductEncryptedData>({
       name: product.name,
       description: product.description,
     });
@@ -177,8 +177,8 @@ export class ProductRepository implements IProductRepository {
   }
 
   private async rowToProduct(row: ProductRow): Promise<Product> {
-    const decrypted = await this.crypto.deserializeField<ProductEncryptedData>(row.encrypted_data);
-    
+    const decrypted = this.crypto.deserializeField<ProductEncryptedData>(row.encrypted_data);
+
     return {
       id: row.id as UUID,
       name: decrypted.name,

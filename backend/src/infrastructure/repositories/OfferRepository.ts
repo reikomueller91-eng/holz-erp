@@ -55,7 +55,7 @@ export class OfferRepository implements IOfferRepository {
   constructor(
     private db: IDatabase,
     private crypto: ICryptoService
-  ) {}
+  ) { }
 
   async findAll(options: { status?: OfferStatus; customerId?: UUID; limit?: number; offset?: number } = {}): Promise<Offer[]> {
     let sql = 'SELECT * FROM offers WHERE 1=1';
@@ -102,7 +102,7 @@ export class OfferRepository implements IOfferRepository {
   }
 
   async save(offer: Offer): Promise<void> {
-    const encryptedData = await this.crypto.serializeField<OfferEncryptedData>({
+    const encryptedData = this.crypto.serializeField<OfferEncryptedData>({
       sellerAddress: offer.sellerAddress,
       customerAddress: offer.customerAddress,
       items: offer.items,
@@ -139,7 +139,7 @@ export class OfferRepository implements IOfferRepository {
   }
 
   async update(offer: Offer): Promise<void> {
-    const encryptedData = await this.crypto.serializeField<OfferEncryptedData>({
+    const encryptedData = this.crypto.serializeField<OfferEncryptedData>({
       sellerAddress: offer.sellerAddress,
       customerAddress: offer.customerAddress,
       items: offer.items,
@@ -180,7 +180,7 @@ export class OfferRepository implements IOfferRepository {
   }
 
   async saveVersion(offerId: UUID, version: OfferVersion): Promise<void> {
-    const encryptedData = await this.crypto.serializeField<Omit<OfferVersion, 'version' | 'offerId' | 'createdAt' | 'createdBy'>>({
+    const encryptedData = this.crypto.serializeField<Omit<OfferVersion, 'version' | 'offerId' | 'createdAt' | 'createdBy'>>({
       status: version.status,
       items: version.items,
       sellerAddress: version.sellerAddress,
@@ -206,8 +206,8 @@ export class OfferRepository implements IOfferRepository {
   }
 
   private async rowToOffer(row: OfferRow): Promise<Offer> {
-    const decrypted = await this.crypto.deserializeField<OfferEncryptedData>(row.encrypted_data);
-    
+    const decrypted = this.crypto.deserializeField<OfferEncryptedData>(row.encrypted_data);
+
     return {
       id: row.id as UUID,
       offerNumber: row.offer_number,
@@ -234,8 +234,8 @@ export class OfferRepository implements IOfferRepository {
   }
 
   private async rowToOfferVersion(row: OfferVersionRow): Promise<OfferVersion> {
-    const decrypted = await this.crypto.deserializeField<Omit<OfferVersion, 'version' | 'offerId' | 'createdAt' | 'createdBy'>>(row.encrypted_data);
-    
+    const decrypted = this.crypto.deserializeField<Omit<OfferVersion, 'version' | 'offerId' | 'createdAt' | 'createdBy'>>(row.encrypted_data);
+
     return {
       offerId: row.offer_id as UUID,
       version: row.version,

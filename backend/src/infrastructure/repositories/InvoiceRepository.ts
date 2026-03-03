@@ -57,7 +57,7 @@ export class InvoiceRepository implements IInvoiceRepository {
   constructor(
     private db: IDatabase,
     private crypto: ICryptoService
-  ) {}
+  ) { }
 
   async findAll(options: { status?: InvoiceStatus; customerId?: UUID; limit?: number; offset?: number } = {}): Promise<Invoice[]> {
     let sql = 'SELECT * FROM invoices WHERE 1=1';
@@ -109,7 +109,7 @@ export class InvoiceRepository implements IInvoiceRepository {
   }
 
   async save(invoice: Invoice): Promise<void> {
-    const encryptedData = await this.crypto.serializeField<InvoiceEncryptedData>({
+    const encryptedData = this.crypto.serializeField<InvoiceEncryptedData>({
       sellerAddress: invoice.sellerAddress,
       customerAddress: invoice.customerAddress,
       lineItems: invoice.lineItems,
@@ -147,7 +147,7 @@ export class InvoiceRepository implements IInvoiceRepository {
   }
 
   async update(invoice: Invoice): Promise<void> {
-    const encryptedData = await this.crypto.serializeField<InvoiceEncryptedData>({
+    const encryptedData = this.crypto.serializeField<InvoiceEncryptedData>({
       sellerAddress: invoice.sellerAddress,
       customerAddress: invoice.customerAddress,
       lineItems: invoice.lineItems,
@@ -193,7 +193,7 @@ export class InvoiceRepository implements IInvoiceRepository {
   }
 
   async saveVersion(invoiceId: UUID, version: InvoiceVersion): Promise<void> {
-    const encryptedData = await this.crypto.serializeField<Omit<InvoiceVersion, 'version' | 'invoiceId' | 'createdAt' | 'createdBy'>>({
+    const encryptedData = this.crypto.serializeField<Omit<InvoiceVersion, 'version' | 'invoiceId' | 'createdAt' | 'createdBy'>>({
       status: version.status,
       lineItems: version.lineItems,
       sellerAddress: version.sellerAddress,
@@ -218,8 +218,8 @@ export class InvoiceRepository implements IInvoiceRepository {
   }
 
   private async rowToInvoice(row: InvoiceRow): Promise<Invoice> {
-    const decrypted = await this.crypto.deserializeField<InvoiceEncryptedData>(row.encrypted_data);
-    
+    const decrypted = this.crypto.deserializeField<InvoiceEncryptedData>(row.encrypted_data);
+
     return {
       id: row.id as UUID,
       invoiceNumber: row.invoice_number,
@@ -247,8 +247,8 @@ export class InvoiceRepository implements IInvoiceRepository {
   }
 
   private async rowToInvoiceVersion(row: InvoiceVersionRow): Promise<InvoiceVersion> {
-    const decrypted = await this.crypto.deserializeField<Omit<InvoiceVersion, 'version' | 'invoiceId' | 'createdAt' | 'createdBy'>>(row.encrypted_data);
-    
+    const decrypted = this.crypto.deserializeField<Omit<InvoiceVersion, 'version' | 'invoiceId' | 'createdAt' | 'createdBy'>>(row.encrypted_data);
+
     return {
       invoiceId: row.invoice_id as UUID,
       version: row.version,
