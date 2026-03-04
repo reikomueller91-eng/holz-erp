@@ -1,13 +1,13 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { IOfferRepository } from '../../infrastructure/repositories/OfferRepository';
-import { ICustomerRepository } from '../../application/ports/ICustomerRepository';
+import type { IOfferRepository } from '../../infrastructure/repositories/OfferRepository';
+import type { ICustomerRepository } from '../../application/ports/ICustomerRepository';
 import type { Offer, OfferItem } from '../../domain/offer/Offer';
 import { transitionOffer, createOfferVersion, calcOfferTotals } from '../../domain/offer/Offer';
 import type { OfferStatus, UUID } from '../../shared/types';
 import { requireUnlocked } from '../middleware/auth';
 import { generateId } from '../../shared/utils/id';
-import type { ProductService } from '../../application/services/ProductService';
+// import type { ProductService } from '../../application/services/ProductService';
 import { PDFService } from '../../infrastructure/pdf/PDFService';
 import { IOrderRepository } from '../../infrastructure/repositories/OrderRepository';
 import type { Order, OrderItem } from '../../domain/order/Order';
@@ -33,7 +33,7 @@ const CreateOfferSchema = z.object({
   lineItems: z.array(OfferLineItemSchema).min(1),
   validUntil: z.string().optional(),
   notes: z.string().optional(),
-  vatPercent: z.number().default(19)
+  vatPercent: z.number().optional()
 });
 
 const UpdateOfferSchema = z.object({
@@ -117,6 +117,10 @@ export async function offerRoutes(fastify: FastifyInstance) {
     async (request) => {
       const data = CreateOfferSchema.parse(request.body);
 
+      // Read VAT from config if not provided by caller
+      const configuredVat = await configRepo.getValue('vat_percent');
+      const vatPercent = data.vatPercent ?? (configuredVat ? parseFloat(configuredVat) : 19);
+
       // Fetch customer to autofill addresses if omitting
       const customer = await customerRepo.findById(data.customerId as UUID);
       if (!customer) {
@@ -148,8 +152,21 @@ export async function offerRoutes(fastify: FastifyInstance) {
       const items: OfferItem[] = await Promise.all(data.lineItems.map(async item => {
         const product = await productService.getById(item.productId as UUID);
 
-        const areaM2 = (product.dimensions.heightMm / 1000) * (product.dimensions.widthMm / 1000) * (item.lengthMm / 1000);
-        const netTotal = Math.round(areaM2 * item.quantityPieces * item.unitPricePerM2 * 100) / 100;
+        let grossTotal = 0;
+
+        if (product.calcMethod === 'm2_unsorted') {
+          // lengthMm acts as area (m2 * 1000). e.g. 10m2 -> lengthMm=10000
+          grossTotal = (item.lengthMm / 1000) * item.quantityPieces * item.unitPricePerM2;
+        } else if (product.calcMethod === 'volume_divided') {
+          // item.unitPricePerM2 is pre-populated by the frontend with (H*W)/Divider, but can be overridden
+          grossTotal = (item.lengthMm / 1000) * item.quantityPieces * item.unitPricePerM2;
+        } else {
+          // m2_sorted (Standard)
+          const areaM2 = (product.dimensions.widthMm / 1000) * (item.lengthMm / 1000);
+          grossTotal = areaM2 * item.quantityPieces * item.unitPricePerM2;
+        }
+
+        const netTotal = Math.round(grossTotal * 100) / 100;
 
         return {
           id: generateId() as UUID,
@@ -164,7 +181,23 @@ export async function offerRoutes(fastify: FastifyInstance) {
         };
       }));
 
-      const totals = calcOfferTotals(items, data.vatPercent);
+      // Add price history entries for items with non-standard prices
+      for (const item of data.lineItems) {
+        try {
+          const priceHistory = await productService.getPriceHistory(item.productId as UUID);
+          const latestPrice = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1].pricePerM2 : null;
+          if (latestPrice !== null && Math.abs(item.unitPricePerM2 - latestPrice) > 0.001) {
+            await productService.addPrice({
+              productId: item.productId as UUID,
+              pricePerM2: item.unitPricePerM2,
+              effectiveFrom: new Date().toISOString() as any,
+              reason: 'Angebotskorrektur',
+            });
+          }
+        } catch { /* ignore - don't fail offer creation because of price history */ }
+      }
+
+      const totals = calcOfferTotals(items, vatPercent);
 
       const offer: Offer = {
         id: generateId() as UUID,
@@ -180,7 +213,7 @@ export async function offerRoutes(fastify: FastifyInstance) {
         customerAddress,
         items,
         ...totals,
-        vatPercent: data.vatPercent,
+        vatPercent,
         notes: data.notes,
         createdAt: new Date().toISOString() as any,
         updatedAt: new Date().toISOString() as any,
@@ -227,8 +260,19 @@ export async function offerRoutes(fastify: FastifyInstance) {
       if (data.lineItems) {
         const items: OfferItem[] = await Promise.all(data.lineItems.map(async item => {
           const product = await productService.getById(item.productId as UUID);
-          const areaM2 = (product.dimensions.heightMm / 1000) * (product.dimensions.widthMm / 1000) * (item.lengthMm / 1000);
-          const netTotal = Math.round(areaM2 * item.quantityPieces * item.unitPricePerM2 * 100) / 100;
+
+          let grossTotal = 0;
+
+          if (product.calcMethod === 'm2_unsorted') {
+            grossTotal = (item.lengthMm / 1000) * item.quantityPieces * item.unitPricePerM2;
+          } else if (product.calcMethod === 'volume_divided') {
+            grossTotal = (item.lengthMm / 1000) * item.quantityPieces * item.unitPricePerM2;
+          } else {
+            const areaM2 = (product.dimensions.widthMm / 1000) * (item.lengthMm / 1000);
+            grossTotal = areaM2 * item.quantityPieces * item.unitPricePerM2;
+          }
+
+          const netTotal = Math.round(grossTotal * 100) / 100;
 
           return {
             id: generateId() as UUID,
@@ -242,6 +286,22 @@ export async function offerRoutes(fastify: FastifyInstance) {
             netTotal,
           };
         }));
+
+        // Add price history entries for items with non-standard prices
+        for (const item of data.lineItems) {
+          try {
+            const priceHistory = await productService.getPriceHistory(item.productId as UUID);
+            const latestPrice = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1].pricePerM2 : null;
+            if (latestPrice !== null && Math.abs(item.unitPricePerM2 - latestPrice) > 0.001) {
+              await productService.addPrice({
+                productId: item.productId as UUID,
+                pricePerM2: item.unitPricePerM2,
+                effectiveFrom: new Date().toISOString() as any,
+                reason: 'Angebotskorrektur (Bearbeitung)',
+              });
+            }
+          } catch { /* ignore - don't fail offer update because of price history */ }
+        }
 
         const totals = calcOfferTotals(items, offer.vatPercent);
         updates.items = items;

@@ -40,6 +40,7 @@ export interface CustomerEncryptedPayload {
   notes: string;
   source: CustomerSource;
   kleinanzeigenId?: string;
+  rating?: number;
 }
 
 // ─── Domain entity (decrypted, in-memory) ───────────────────────
@@ -50,6 +51,7 @@ export interface Customer {
   notes: string;
   source: CustomerSource;
   kleinanzeigenId?: string;
+  rating?: number;
   isActive: boolean;
   createdAt: ISODateTime;
   updatedAt: ISODateTime;

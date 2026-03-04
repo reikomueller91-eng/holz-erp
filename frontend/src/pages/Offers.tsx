@@ -22,6 +22,7 @@ function getErrorMessage(error: unknown): string {
 
 export default function Offers() {
   const [search, setSearch] = useState('')
+  const [hideExpired, setHideExpired] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const navigate = useNavigate()
 
@@ -37,9 +38,18 @@ export default function Offers() {
 
   const offers = Array.isArray(data) ? data : []
 
-  const filteredOffers = offers.filter(o =>
-    o?.customerName?.toLowerCase().includes(search.toLowerCase())
-  )
+  const todayDateStr = new Date().toISOString().split('T')[0]
+
+  const filteredOffers = offers.filter(o => {
+    const matchesSearch = o?.customerName?.toLowerCase().includes(search.toLowerCase())
+
+    // An offer is expired if validUntil exists and is before today
+    const isExpired = o.validUntil ? o.validUntil < todayDateStr : false
+
+    if (hideExpired && isExpired) return false;
+
+    return matchesSearch;
+  })
 
   if (error && !isLoading) {
     const isNetwork = (error as { code?: string }).code === 'ERR_NETWORK'
@@ -67,7 +77,23 @@ export default function Offers() {
         }
       />
 
-      <SearchInput value={search} onChange={setSearch} placeholder="Angebote suchen..." />
+      <div className="flex flex-col sm:flex-row gap-4 items-center">
+        <div className="flex-1 w-full">
+          <SearchInput value={search} onChange={setSearch} placeholder="Angebote suchen..." />
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="hideExpired"
+            checked={hideExpired}
+            onChange={(e) => setHideExpired(e.target.checked)}
+            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+          <label htmlFor="hideExpired" className="text-sm text-gray-700 select-none cursor-pointer">
+            Abgelaufene Angebote ausblenden
+          </label>
+        </div>
+      </div>
 
       <div className="card overflow-hidden">
         {isLoading ? <LoadingState /> : filteredOffers.length === 0 ? (
@@ -84,28 +110,31 @@ export default function Offers() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredOffers.map((offer) => (
-                <tr
-                  key={offer.id}
-                  className="hover:bg-gray-50 cursor-pointer"
-                  onClick={() => navigate(`/offers/${offer.id}`)}
-                >
-                  <td className="px-6 py-4 font-medium">{offer.customerName || 'Unbekannt'}</td>
-                  <td className="px-6 py-4 text-gray-600">{formatDate(offer.createdAt)}</td>
-                  <td className="px-6 py-4"><StatusBadge type="offer" status={offer.status} /></td>
-                  <td className="px-6 py-4 text-right font-medium">{formatCurrency(offer.totalAmount)}</td>
-                  <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                    <Link to={`/offers/${offer.id}`} className="p-2 text-gray-400 hover:text-primary-600 inline-block">
-                      <Eye className="w-4 h-4" />
-                    </Link>
-                    {offer.pdfPath && (
-                      <a href={`/api/offers/${offer.id}/pdf`} target="_blank" rel="noopener noreferrer" className="p-2 text-gray-400 hover:text-primary-600 inline-block" title="PDF ansehen">
-                        <Download className="w-4 h-4" />
-                      </a>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {filteredOffers.map((offer) => {
+                const isExpired = offer.validUntil ? offer.validUntil < todayDateStr : false;
+                return (
+                  <tr
+                    key={offer.id}
+                    className={`cursor-pointer ${isExpired ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}`}
+                    onClick={() => navigate(`/offers/${offer.id}`)}
+                  >
+                    <td className="px-6 py-4 font-medium">{offer.customerName || 'Unbekannt'}</td>
+                    <td className="px-6 py-4 text-gray-600">{formatDate(offer.createdAt)}</td>
+                    <td className="px-6 py-4"><StatusBadge type="offer" status={offer.status} /></td>
+                    <td className="px-6 py-4 text-right font-medium">{formatCurrency(offer.totalAmount)}</td>
+                    <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                      <Link to={`/offers/${offer.id}`} className="p-2 text-gray-400 hover:text-primary-600 inline-block">
+                        <Eye className="w-4 h-4" />
+                      </Link>
+                      {offer.pdfPath && (
+                        <a href={`/api/offers/${offer.id}/pdf`} target="_blank" rel="noopener noreferrer" className="p-2 text-gray-400 hover:text-primary-600 inline-block" title="PDF ansehen">
+                          <Download className="w-4 h-4" />
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -120,7 +149,7 @@ function OfferModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient()
   const [selectedCustomer, setSelectedCustomer] = useState('')
   const [validUntil, setValidUntil] = useState('')
-  const [lineItems, setLineItems] = useState<Array<{ productId: string; lengthMm: number; quantity: number; unitPrice: number }>>([])
+  const [lineItems, setLineItems] = useState<Array<{ productId: string; lengthM: number; quantity: number; unitPrice: number }>>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const { data: customers } = useQuery({
@@ -136,6 +165,14 @@ function OfferModal({ onClose }: { onClose: () => void }) {
     queryFn: async () => {
       const { data } = await api.get<Product[]>('/products')
       return Array.isArray(data) ? data : []
+    },
+  })
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const { data } = await api.get<{ sellerAddress: string; vatPercent: number }>('/settings')
+      return data
     },
   })
 
@@ -156,7 +193,7 @@ function OfferModal({ onClose }: { onClose: () => void }) {
         validUntil: validUntil || undefined,
         lineItems: lineItems.map(item => ({
           productId: item.productId,
-          lengthMm: item.lengthMm,
+          lengthMm: Math.round(item.lengthM * 1000),
           quantityPieces: item.quantity,
           unitPricePerM2: item.unitPrice,
         })),
@@ -173,7 +210,7 @@ function OfferModal({ onClose }: { onClose: () => void }) {
   }
 
   const addLineItem = () => {
-    setLineItems([...lineItems, { productId: '', lengthMm: 1000, quantity: 1, unitPrice: 0 }])
+    setLineItems([...lineItems, { productId: '', lengthM: 1, quantity: 1, unitPrice: 0 }])
   }
 
   const updateLineItem = (index: number, field: keyof typeof lineItems[0], value: string | number) => {
@@ -182,7 +219,12 @@ function OfferModal({ onClose }: { onClose: () => void }) {
     if (field === 'productId') {
       const product = products?.find(p => p.id === value)
       if (product) {
-        newItems[index].unitPrice = product.currentPricePerM2
+        if (product.calcMethod === 'volume_divided') {
+          const divider = product.volumeDivider && product.volumeDivider > 0 ? product.volumeDivider : 1;
+          newItems[index].unitPrice = (product.heightMm * product.widthMm) / divider;
+        } else {
+          newItems[index].unitPrice = product.currentPricePerM2;
+        }
       }
     }
     setLineItems(newItems)
@@ -192,12 +234,24 @@ function OfferModal({ onClose }: { onClose: () => void }) {
     setLineItems(lineItems.filter((_, i) => i !== index))
   }
 
-  const total = lineItems.reduce((sum, item) => {
+  const grossSum = lineItems.reduce((sum, item) => {
     const product = products?.find(p => p.id === item.productId)
     if (!product) return sum
-    const areaM2 = (product.heightMm / 1000) * (product.widthMm / 1000) * (item.lengthMm / 1000)
-    return sum + (areaM2 * item.unitPrice * item.quantity)
+
+    let itemGross = 0;
+    if (product.calcMethod === 'm2_unsorted' || product.calcMethod === 'volume_divided') {
+      itemGross = item.lengthM * item.quantity * item.unitPrice;
+    } else {
+      const areaM2 = (product.widthMm / 1000) * item.lengthM;
+      itemGross = areaM2 * item.quantity * item.unitPrice;
+    }
+
+    return sum + (Math.round(itemGross * 100) / 100);
   }, 0)
+
+  const vatPercent = settings?.vatPercent ?? 19
+  const netSum = Math.round((grossSum / (1 + vatPercent / 100)) * 100) / 100;
+  const vatAmount = Math.round((grossSum - netSum) * 100) / 100;
 
   return (
     <Modal title="Neues Angebot" onClose={onClose} size="xl" footer={
@@ -224,25 +278,54 @@ function OfferModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-4">
             <label className="text-sm font-medium text-gray-700">Positionen</label>
             <button onClick={addLineItem} className="text-sm text-primary-600 hover:text-primary-700" disabled={isSubmitting}>+ Position</button>
           </div>
-          {lineItems.map((item, index) => (
-            <div key={index} className="flex items-center gap-2 mb-2 p-2 bg-gray-50 rounded">
-              <select value={item.productId} onChange={(e) => updateLineItem(index, 'productId', e.target.value)} className="input flex-1 text-sm" disabled={isSubmitting}>
-                <option value="">Produkt...</option>
-                {products?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <input type="number" placeholder="Länge" value={item.lengthMm} onChange={(e) => updateLineItem(index, 'lengthMm', Number(e.target.value))} className="input w-24 text-sm" disabled={isSubmitting} />
-              <input type="number" placeholder="Anzahl" value={item.quantity} onChange={(e) => updateLineItem(index, 'quantity', Number(e.target.value))} className="input w-20 text-sm" disabled={isSubmitting} />
-              <input type="number" step="0.01" placeholder="€/m²" value={item.unitPrice} onChange={(e) => updateLineItem(index, 'unitPrice', Number(e.target.value))} className="input w-24 text-sm" disabled={isSubmitting} />
-              <button onClick={() => removeLineItem(index)} className="p-1 text-red-500 hover:bg-red-50 rounded" disabled={isSubmitting}>×</button>
+
+          {lineItems.length > 0 && (
+            <div className="flex items-center gap-2 px-2 pb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 mb-3">
+              <div className="flex-1">Produkt</div>
+              <div className="w-28 px-1">Maß (m/m²)</div>
+              <div className="w-20 px-1">Anzahl</div>
+              <div className="w-24 px-1">Stückpreis</div>
+              <div className="w-6"></div>
             </div>
-          ))}
+          )}
+
+          <div className="space-y-2 mb-6">
+            {lineItems.map((item, index) => {
+              const product = products?.find(p => p.id === item.productId);
+              return (
+                <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded border border-transparent hover:border-gray-200 transition-colors">
+                  <select value={item.productId} onChange={(e) => updateLineItem(index, 'productId', e.target.value)} className="input flex-1 text-sm bg-white" disabled={isSubmitting}>
+                    <option value="">Produkt wählen...</option>
+                    {products?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <input type="number" step="0.001" placeholder={product?.calcMethod === 'm2_unsorted' ? "Fläche (m²)" : product?.calcMethod === 'volume_divided' ? "Länge (Lfm)" : "Länge (m)"} value={item.lengthM} onChange={(e) => updateLineItem(index, 'lengthM', Number(e.target.value))} className="input w-28 text-sm bg-white" disabled={isSubmitting} title={product?.calcMethod === 'm2_unsorted' ? "Fläche in Quadratmetern" : product?.calcMethod === 'volume_divided' ? "Länge in Laufmetern" : "Länge in Metern"} />
+                  <input type="number" placeholder="Anzahl" value={item.quantity} onChange={(e) => updateLineItem(index, 'quantity', Number(e.target.value))} className="input w-20 text-sm bg-white" disabled={isSubmitting} />
+                  <input type="number" step="0.01" placeholder={product?.calcMethod === 'volume_divided' ? "€/Lfm" : "€/m²"} value={item.unitPrice} onChange={(e) => updateLineItem(index, 'unitPrice', Number(e.target.value))} className="input w-24 text-sm bg-white" disabled={isSubmitting} title={product?.calcMethod === 'volume_divided' ? "Preis Brutto pro Laufmeter" : "Preis Brutto pro m²"} />
+                  <button onClick={() => removeLineItem(index)} className="p-1 w-6 text-red-500 hover:bg-red-50 rounded flex justify-center items-center" disabled={isSubmitting} title="Entfernen">×</button>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        <div className="text-right font-bold text-lg">Gesamt: {formatCurrency(total)}</div>
+        <div className="border-t border-gray-200 pt-4 flex flex-col items-end gap-1">
+          <div className="flex justify-between w-48 text-sm text-gray-600">
+            <span>Netto:</span>
+            <span>{formatCurrency(netSum)}</span>
+          </div>
+          <div className="flex justify-between w-48 text-sm text-gray-600">
+            <span>MwSt ({vatPercent}%):</span>
+            <span>{formatCurrency(vatAmount)}</span>
+          </div>
+          <div className="flex justify-between w-48 text-lg font-bold text-gray-900 pt-2 border-t border-gray-100">
+            <span>Brutto:</span>
+            <span>{formatCurrency(grossSum)}</span>
+          </div>
+        </div>
       </div>
     </Modal>
   )

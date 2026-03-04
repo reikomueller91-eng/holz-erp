@@ -25,6 +25,7 @@ import { pricingRoutes } from './routes/pricing';
 import { invoiceRoutes } from './routes/invoices';
 import { dashboardRoutes } from './routes/dashboard';
 import { buildSettingsRoutes } from './routes/settings';
+import { systemRoutes } from './routes/system';
 import { HolzError } from '../shared/errors';
 import { logger } from '../shared/utils/logger';
 import { ZodError } from 'zod';
@@ -102,6 +103,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     await pricingRoutes(app);
     await invoiceRoutes(app);
     await dashboardRoutes(app, {});
+    await systemRoutes(app);
     app.register(buildSettingsRoutes(systemConfigRepository));
   }, { prefix: '/api' });
 

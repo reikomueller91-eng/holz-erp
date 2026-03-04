@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyRequest } from 'fastify';
+import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { IOrderRepository } from '../../infrastructure/repositories/OrderRepository';
 import { IOfferRepository } from '../../infrastructure/repositories/OfferRepository';
@@ -8,6 +8,8 @@ import { transitionOrder, updateItemProduction, calcOrderTotals } from '../../do
 import type { OrderStatus, UUID } from '../../shared/types';
 import { requireUnlocked } from '../middleware/auth';
 import { generateId } from '../../shared/utils/id';
+import { PDFService } from '../../infrastructure/pdf/PDFService';
+import fs from 'fs';
 
 // Validation schemas
 const OrderItemSchema = z.object({
@@ -41,6 +43,9 @@ export async function orderRoutes(fastify: FastifyInstance) {
   const orderRepo = fastify.orderRepository as IOrderRepository;
   const offerRepo = fastify.offerRepository as IOfferRepository;
   const customerRepo = fastify.customerRepository as ICustomerRepository;
+  const productService = fastify.productService as any;
+  const configRepo = fastify.systemConfigRepository as any;
+  const pdfService = new PDFService(customerRepo);
 
   // GET /api/orders - List all orders
   fastify.get<{ Querystring: { status?: string; customerId?: string; limit?: string; offset?: string } }>(
@@ -197,6 +202,27 @@ export async function orderRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // GET /api/orders/:id/pdf - Get order PDF
+  fastify.get<{ Params: { id: string } }>(
+    '/orders/:id/pdf',
+    { preHandler: requireUnlocked },
+    async (request, reply) => {
+      const order = await orderRepo.findById(request.params.id as UUID);
+      if (!order) {
+        return fastify.httpErrors.notFound('Order not found');
+      }
+
+      if (!order.pdfPath || !fs.existsSync(order.pdfPath)) {
+        return fastify.httpErrors.notFound('PDF not found');
+      }
+
+      const stream = fs.createReadStream(order.pdfPath);
+      reply.header('Content-Type', 'application/pdf');
+      reply.header('Content-Disposition', `attachment; filename="order-${order.orderNumber}.pdf"`);
+      return reply.send(stream);
+    }
+  );
+
   // POST /api/orders - Create order
   fastify.post<{ Body: z.infer<typeof CreateOrderSchema> }>(
     '/orders',
@@ -209,9 +235,25 @@ export async function orderRoutes(fastify: FastifyInstance) {
       const orderNumber = `ORD-${String(orderCount + 1).padStart(6, '0')}`;
 
       // Build items
-      const items: OrderItem[] = data.items.map(item => {
-        const areaM2 = (item.heightMm / 1000) * (item.widthMm / 1000) * (item.lengthMm / 1000);
-        const netTotal = Math.round(areaM2 * item.quantity * item.pricePerM2);
+      const items: OrderItem[] = await Promise.all(data.items.map(async item => {
+        const product = await productService.getById(item.productId);
+
+        let grossTotal = 0;
+        let itemPricePerM2 = item.pricePerM2;
+
+        if (product.calcMethod === 'm2_unsorted') {
+          grossTotal = (item.lengthMm / 1000) * item.quantity * item.pricePerM2;
+        } else if (product.calcMethod === 'volume_divided') {
+          const divider = product.volumeDivider && product.volumeDivider > 0 ? product.volumeDivider : 1;
+          const pricePerLfm = (product.dimensions.heightMm * product.dimensions.widthMm) / divider;
+          grossTotal = pricePerLfm * (item.lengthMm / 1000) * item.quantity;
+          itemPricePerM2 = pricePerLfm;
+        } else {
+          const areaM2 = (product.dimensions.widthMm / 1000) * (item.lengthMm / 1000);
+          grossTotal = areaM2 * item.quantity * item.pricePerM2;
+        }
+
+        const netTotal = Math.round(grossTotal * 100) / 100;
 
         return {
           id: generateId() as UUID,
@@ -222,11 +264,11 @@ export async function orderRoutes(fastify: FastifyInstance) {
           quantity: item.quantity,
           quantityProduced: 0,
           quality: item.quality,
-          pricePerM2: item.pricePerM2,
+          pricePerM2: itemPricePerM2,
           netTotal,
           productionStatus: 'not_started',
         };
-      });
+      }));
 
       const totals = calcOrderTotals(items, data.vatPercent);
 
@@ -246,6 +288,16 @@ export async function orderRoutes(fastify: FastifyInstance) {
       };
 
       await orderRepo.save(order);
+
+      // Generate PDF
+      const sellerAddress = await configRepo.getValue('seller_address') || 'HolzERP Musterfirma\nMusterstraße 1\n12345 Musterstadt';
+      try {
+        const { filePath } = await pdfService.generateOrderPDF(order, sellerAddress);
+        order.pdfPath = filePath;
+        await orderRepo.update(order);
+      } catch (err) {
+        console.error('Failed to generate order PDF', err);
+      }
 
       // If created from offer, mark offer as converted
       if (data.offerId) {

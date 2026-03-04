@@ -8,6 +8,7 @@ export interface Customer {
   source: 'direct' | 'kleinanzeigen' | 'referral' | 'other'
   kleinanzeigenId?: string
   isActive: boolean
+  rating?: number | null
   createdAt: string
   updatedAt: string
 }
@@ -20,6 +21,8 @@ export interface Product {
   heightMm: number
   widthMm: number
   lengthMm?: number
+  calcMethod: 'm2_unsorted' | 'm2_sorted' | 'volume_divided'
+  volumeDivider?: number | null
   description?: string
   currentPricePerM2: number
   isActive: boolean
@@ -83,6 +86,7 @@ export interface Order {
   vatAmount?: number
   grossSum?: number
   productionStatus?: string
+  pdfPath?: string
   createdAt: string
   updatedAt: string
   finishedAt?: string | null
@@ -99,6 +103,7 @@ export interface InvoiceLineItem {
 
 export interface Invoice {
   id: string
+  invoiceNumber?: string
   version: number
   orderId: string
   customerId: string

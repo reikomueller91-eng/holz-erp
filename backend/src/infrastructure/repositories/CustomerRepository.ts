@@ -82,6 +82,9 @@ export class CustomerRepository implements ICustomerRepository {
       ...(customer.kleinanzeigenId !== undefined
         ? { kleinanzeigenId: customer.kleinanzeigenId }
         : {}),
+      ...(customer.rating !== undefined
+        ? { rating: customer.rating }
+        : {}),
     };
 
     const encryptedData = this.crypto.serializeField(payload);
@@ -123,6 +126,9 @@ export class CustomerRepository implements ICustomerRepository {
       source: merged.source,
       ...(merged.kleinanzeigenId !== undefined
         ? { kleinanzeigenId: merged.kleinanzeigenId }
+        : {}),
+      ...(merged.rating !== undefined
+        ? { rating: merged.rating }
         : {}),
     };
 
@@ -166,6 +172,9 @@ export class CustomerRepository implements ICustomerRepository {
       source: payload.source,
       ...(payload.kleinanzeigenId !== undefined
         ? { kleinanzeigenId: payload.kleinanzeigenId }
+        : {}),
+      ...(payload.rating !== undefined
+        ? { rating: payload.rating }
         : {}),
       isActive: row.is_active === 1,
       createdAt: row.created_at,

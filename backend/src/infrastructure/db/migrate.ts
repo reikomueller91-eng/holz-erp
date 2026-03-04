@@ -174,6 +174,19 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE offers ADD COLUMN pdf_path TEXT;
     `,
   },
+  {
+    name: '006_products_calc_method',
+    up: `
+      ALTER TABLE products ADD COLUMN calc_method TEXT NOT NULL DEFAULT 'm2_sorted';
+      ALTER TABLE products ADD COLUMN volume_divider INTEGER;
+    `,
+  },
+  {
+    name: '007_orders_pdf_path',
+    up: `
+      ALTER TABLE orders ADD COLUMN pdf_path TEXT;
+    `,
+  },
 ];
 
 export async function runMigrations(db: IDatabase): Promise<void> {

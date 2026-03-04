@@ -1,9 +1,10 @@
-import { FastifyInstance, FastifyRequest } from 'fastify';
+import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { IInvoiceRepository } from '../../infrastructure/repositories/InvoiceRepository';
 import { IOrderRepository } from '../../infrastructure/repositories/OrderRepository';
 import { ICustomerRepository } from '../../application/ports/ICustomerRepository';
 import { PDFService } from '../../infrastructure/pdf/PDFService';
+import { transitionOrder } from '../../domain/order/Order';
 import type { Invoice, InvoiceLineItem } from '../../domain/invoice/Invoice';
 import { transitionInvoice, finalizeInvoice, createInvoiceVersion, calcInvoiceTotals, generateInvoiceNumber } from '../../domain/invoice/Invoice';
 import type { InvoiceStatus, UUID } from '../../shared/types';
@@ -109,6 +110,72 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       reply.header('Content-Type', 'application/pdf');
       reply.header('Content-Disposition', `inline; filename=${path.basename(anyInvoice.pdfPath)}`);
       return reply.send(stream);
+    }
+  );
+
+  // POST /api/orders/:id/invoice - Create invoice straight from order
+  fastify.post<{ Params: { id: string } }>(
+    '/orders/:id/invoice',
+    { preHandler: requireUnlocked },
+    async (request) => {
+      const order = await orderRepo.findById(request.params.id as UUID);
+      if (!order) {
+        return fastify.httpErrors.notFound('Order not found');
+      }
+
+      const customer = await customerRepo.findById(order.customerId);
+      const sellerAddress = await configRepo.getValue('seller_address') || 'HolzERP Musterfirma\nMusterstraße 1\n12345 Musterstadt';
+
+      const invoiceCount = (await invoiceRepo.findAll()).length;
+      const invoiceNumber = generateInvoiceNumber(invoiceCount);
+
+      let customerAddrStr = 'Keine Adresse';
+      if (customer) {
+        const addr = customer.contactInfo?.address;
+        const street = addr?.street ? `${addr.street}\n` : '';
+        const city = addr?.postalCode ? `${addr.postalCode} ${addr.city || ''}` : (addr?.city || '');
+        customerAddrStr = `${customer.name}\n${street}${city}`.trim();
+      }
+
+      const lineItems: InvoiceLineItem[] = order.items.map((item, index) => ({
+        id: generateId() as UUID,
+        invoiceId: '' as UUID,
+        orderItemId: item.id,
+        productId: item.productId,
+        description: `Pos ${index + 1}: ${item.widthMm}x${item.heightMm}mm, ${item.lengthMm}mm lang`,
+        quantity: item.quantity,
+        unit: 'Stk',
+        unitPrice: item.pricePerM2,
+        totalPrice: item.netTotal,
+        sortOrder: index,
+      }));
+
+      const totals = calcInvoiceTotals(lineItems, order.vatPercent);
+
+      const invoice: Invoice = {
+        id: generateId() as UUID,
+        invoiceNumber,
+        version: 1,
+        orderId: order.id,
+        customerId: order.customerId,
+        status: 'draft',
+        date: new Date().toISOString().split('T')[0],
+        sellerAddress,
+        customerAddress: customerAddrStr,
+        lineItems,
+        ...totals,
+        vatPercent: order.vatPercent,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      lineItems.forEach(item => item.invoiceId = invoice.id);
+      await invoiceRepo.save(invoice);
+
+      const updatedOrder = transitionOrder(order, 'invoiced');
+      await orderRepo.update(updatedOrder);
+
+      return { invoice };
     }
   );
 
@@ -268,9 +335,9 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // POST /api/invoices/:id/generate-pdf - Generate PDF
+  // POST /api/invoices/:id/pdf - Generate PDF
   fastify.post<{ Params: { id: string } }>(
-    '/invoices/:id/generate-pdf',
+    '/invoices/:id/pdf',
     { preHandler: requireUnlocked },
     async (request) => {
       const invoice = await invoiceRepo.findById(request.params.id as UUID);

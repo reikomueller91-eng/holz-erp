@@ -21,7 +21,7 @@ export interface Invoice {
   orderId: UUID;
   customerId: UUID;
   status: InvoiceStatus;
-  
+
   // Business data
   sellerAddress: string;
   customerAddress: string;
@@ -30,16 +30,16 @@ export interface Invoice {
   vatPercent: number;
   vatAmount: number;
   totalGross: number;
-  
+
   // Dates
   date: ISODate;
   dueDate?: ISODate;
   paidAt?: ISODateTime;
   finalizedAt?: ISODateTime;
-  
+
   // PDF
   pdfPath?: string;
-  
+
   // Metadata
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
@@ -76,16 +76,16 @@ export function transitionInvoice(invoice: Invoice, to: InvoiceStatus): Invoice 
   if (!allowed.includes(to)) {
     throw new InvalidTransitionError('Invoice', invoice.status, to);
   }
-  
+
   const updates: Partial<Invoice> = {
     status: to,
     updatedAt: new Date().toISOString() as ISODateTime,
   };
-  
+
   if (to === 'paid') {
     updates.paidAt = new Date().toISOString() as ISODateTime;
   }
-  
+
   return { ...invoice, ...updates };
 }
 
@@ -93,11 +93,11 @@ export function finalizeInvoice(invoice: Invoice): Invoice {
   if (invoice.finalizedAt) {
     throw new ImmutableError('Invoice is already finalized');
   }
-  
+
   if (invoice.status !== 'sent') {
     throw new Error('Invoice must be sent before finalizing');
   }
-  
+
   return {
     ...invoice,
     finalizedAt: new Date().toISOString() as ISODateTime,
@@ -129,10 +129,11 @@ export function calcInvoiceTotals(
   const totalNet = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
   const vatAmount = Math.round(totalNet * vatPercent) / 100;
   const totalGross = totalNet + vatAmount;
-  
+
   return { totalNet, vatAmount, totalGross };
 }
 
 export function generateInvoiceNumber(sequence: number): string {
-  return `INV-${String(sequence + 1).padStart(6, '0')}`;
+  const year = new Date().getFullYear();
+  return `${year}-01-${String(sequence + 1).padStart(3, '0')}`;
 }

@@ -8,7 +8,7 @@ import type { Offer, Product } from '../types'
 
 type EditLineItem = {
   productId: string
-  lengthMm: number
+  lengthM: number
   quantity: number
   unitPrice: number
 }
@@ -78,7 +78,7 @@ export default function OfferDetail() {
     setEditLineItems(
       (offer?.lineItems ?? []).map(item => ({
         productId: item.productId,
-        lengthMm: item.lengthMm,
+        lengthM: item.lengthMm / 1000,
         quantity: item.quantityPieces,
         unitPrice: item.unitPricePerM2,
       }))
@@ -87,7 +87,7 @@ export default function OfferDetail() {
   }
 
   const addLineItem = () => {
-    setEditLineItems([...editLineItems, { productId: '', lengthMm: 1000, quantity: 1, unitPrice: 0 }])
+    setEditLineItems([...editLineItems, { productId: '', lengthM: 1, quantity: 1, unitPrice: 0 }])
   }
 
   const updateLineItem = (index: number, field: keyof EditLineItem, value: string | number) => {
@@ -95,7 +95,14 @@ export default function OfferDetail() {
     updated[index] = { ...updated[index], [field]: value }
     if (field === 'productId') {
       const product = products?.find(p => p.id === value)
-      if (product) updated[index].unitPrice = product.currentPricePerM2
+      if (product) {
+        if (product.calcMethod === 'volume_divided') {
+          const divider = product.volumeDivider && product.volumeDivider > 0 ? product.volumeDivider : 1;
+          updated[index].unitPrice = (product.heightMm * product.widthMm) / divider;
+        } else {
+          updated[index].unitPrice = product.currentPricePerM2;
+        }
+      }
     }
     setEditLineItems(updated)
   }
@@ -113,7 +120,7 @@ export default function OfferDetail() {
         .filter(item => item.productId)
         .map(item => ({
           productId: item.productId,
-          lengthMm: item.lengthMm,
+          lengthMm: Math.round(item.lengthM * 1000),
           quantityPieces: item.quantity,
           unitPricePerM2: item.unitPrice,
         })),
@@ -123,8 +130,15 @@ export default function OfferDetail() {
   const editTotal = editLineItems.reduce((sum, item) => {
     const product = products?.find(p => p.id === item.productId)
     if (!product) return sum
-    const areaM2 = (product.heightMm / 1000) * (product.widthMm / 1000) * (item.lengthMm / 1000)
-    return sum + areaM2 * item.unitPrice * item.quantity
+
+    let itemGross = 0;
+    if (product.calcMethod === 'm2_unsorted' || product.calcMethod === 'volume_divided') {
+      itemGross = item.lengthM * item.quantity * item.unitPrice;
+    } else {
+      const areaM2 = (product.widthMm / 1000) * item.lengthM;
+      itemGross = areaM2 * item.quantity * item.unitPrice;
+    }
+    return sum + itemGross;
   }, 0)
 
   if (!offer) return <div className="p-8 text-center">Laden...</div>
@@ -215,9 +229,9 @@ export default function OfferDetail() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Produkt</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Länge (mm)</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Maß</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Anzahl</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Preis/m²</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Stückpreis</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Gesamt</th>
                 </tr>
               </thead>
@@ -228,7 +242,7 @@ export default function OfferDetail() {
                       <p className="font-medium text-gray-900">{item.productName || 'Unbekannt'}</p>
                       {item.notes && <p className="text-sm text-gray-500">{item.notes}</p>}
                     </td>
-                    <td className="px-6 py-4 text-right text-gray-600">{item.lengthMm}</td>
+                    <td className="px-6 py-4 text-right text-gray-600">{(item.lengthMm / 1000).toFixed(3)}</td>
                     <td className="px-6 py-4 text-right text-gray-600">{item.quantityPieces}</td>
                     <td className="px-6 py-4 text-right text-gray-600">€{item.unitPricePerM2.toFixed(2)}</td>
                     <td className="px-6 py-4 text-right font-medium text-gray-900">
@@ -363,10 +377,13 @@ export default function OfferDetail() {
 
                 {editLineItems.map((item, index) => {
                   const product = products?.find(p => p.id === item.productId)
-                  const areaM2 = product
-                    ? (product.heightMm / 1000) * (product.widthMm / 1000) * (item.lengthMm / 1000)
-                    : 0
-                  const lineTotal = areaM2 * item.unitPrice * item.quantity
+                  const lineTotal = (() => {
+                    if (!product) return 0;
+                    if (product.calcMethod === 'm2_unsorted' || product.calcMethod === 'volume_divided') {
+                      return item.lengthM * item.quantity * item.unitPrice;
+                    }
+                    return ((product.widthMm / 1000) * item.lengthM) * item.unitPrice * item.quantity;
+                  })();
 
                   return (
                     <div key={index} className="p-3 bg-gray-50 rounded-lg mb-2">
@@ -382,13 +399,16 @@ export default function OfferDetail() {
                           ))}
                         </select>
                         <div className="flex flex-col">
-                          <span className="text-xs text-gray-500 mb-0.5">Länge (mm)</span>
+                          <span className="text-xs text-gray-500 mb-0.5" title={product?.calcMethod === 'm2_unsorted' ? "Fläche in Quadratmetern" : product?.calcMethod === 'volume_divided' ? "Länge in Laufmetern" : "Länge in Metern"}>
+                            {product?.calcMethod === 'm2_unsorted' ? "Fläche (m²)" : product?.calcMethod === 'volume_divided' ? "Länge (Lfm)" : "Länge (m)"}
+                          </span>
                           <input
                             type="number"
-                            value={item.lengthMm}
-                            onChange={(e) => updateLineItem(index, 'lengthMm', Number(e.target.value))}
+                            step="0.001"
+                            value={item.lengthM}
+                            onChange={(e) => updateLineItem(index, 'lengthM', Number(e.target.value))}
                             className="input w-24 text-sm"
-                            min={1}
+                            min={0.001}
                           />
                         </div>
                         <div className="flex flex-col">
@@ -402,7 +422,9 @@ export default function OfferDetail() {
                           />
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-xs text-gray-500 mb-0.5">€/m²</span>
+                          <span className="text-xs text-gray-500 mb-0.5" title={product?.calcMethod === 'volume_divided' ? "Preis Brutto pro Laufmeter" : "Preis Brutto pro m²"}>
+                            {product?.calcMethod === 'volume_divided' ? "€/Lfm" : "€/m²"}
+                          </span>
                           <input
                             type="number"
                             step="0.01"
@@ -427,7 +449,7 @@ export default function OfferDetail() {
                       {product && (
                         <p className="text-xs text-gray-400 mt-1 ml-1">
                           {product.heightMm}×{product.widthMm} mm · Qualität {product.qualityGrade}
-                          {areaM2 > 0 && ` · ${areaM2.toFixed(4)} m² × ${item.quantity} Stk.`}
+                          {item.lengthM > 0 && product.calcMethod !== 'm2_unsorted' && product.calcMethod !== 'volume_divided' && ` · ${((product.widthMm / 1000) * item.lengthM).toFixed(4)} m² × ${item.quantity} Stk.`}
                         </p>
                       )}
                     </div>

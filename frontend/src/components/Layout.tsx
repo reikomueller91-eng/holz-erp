@@ -106,8 +106,31 @@ export default function Layout() {
           >
             <Menu className="w-6 h-6 text-gray-600" />
           </button>
-          <div className="flex items-center space-x-4">
-            <span className="text-sm text-gray-500">{new Date().toLocaleDateString('de-DE')}</span>
+
+          <div className="flex items-center space-x-4 ml-auto">
+            <span className="text-sm font-medium text-gray-600 bg-gray-100 px-3 py-1.5 rounded-full">
+              {(() => {
+                const date = new Date()
+                const formattedDate = date.toLocaleDateString('de-DE', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric'
+                })
+
+                // Calculate ISO week number
+                const target = new Date(date.valueOf())
+                const dayNr = (date.getDay() + 6) % 7
+                target.setDate(target.getDate() - dayNr + 3)
+                const firstThursday = target.valueOf()
+                target.setMonth(0, 1)
+                if (target.getDay() !== 4) {
+                  target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7)
+                }
+                const weekNumber = 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000)
+
+                return `${formattedDate} | KW ${weekNumber}`
+              })()}
+            </span>
           </div>
         </header>
 

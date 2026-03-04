@@ -5,7 +5,7 @@ import { generateId } from '../../shared/utils/id';
 import { NotFoundError } from '../../shared/errors';
 
 export class ProductService {
-  constructor(private productRepo: IProductRepository) {}
+  constructor(private productRepo: IProductRepository) { }
 
   async getById(id: UUID): Promise<Product> {
     const product = await this.productRepo.findById(id);
@@ -25,6 +25,8 @@ export class ProductService {
     qualityGrade: string;
     heightMm: number;
     widthMm: number;
+    calcMethod?: string;
+    volumeDivider?: number;
     description?: string;
   }): Promise<Product> {
     const product: Product = {
@@ -32,6 +34,8 @@ export class ProductService {
       name: data.name,
       woodType: data.woodType as any,
       qualityGrade: data.qualityGrade as any,
+      calcMethod: (data.calcMethod as any) || 'm2_sorted',
+      volumeDivider: data.volumeDivider,
       dimensions: {
         heightMm: data.heightMm,
         widthMm: data.widthMm,
@@ -50,7 +54,7 @@ export class ProductService {
 
   async update(id: UUID, updates: Partial<Product>): Promise<Product> {
     const product = await this.getById(id);
-    
+
     const updated: Product = {
       ...product,
       ...updates,

@@ -37,6 +37,7 @@ const CreateCustomerBody = z.object({
   notes: z.string().max(5000).optional(),
   source: z.enum(CUSTOMER_SOURCES).optional(),
   kleinanzeigenId: z.string().optional(),
+  rating: z.number().int().min(1).max(5).optional(),
 });
 
 const UpdateCustomerBody = z.object({
@@ -50,6 +51,7 @@ const UpdateCustomerBody = z.object({
   source: z.enum(CUSTOMER_SOURCES).optional(),
   kleinanzeigenId: z.string().optional(),
   isActive: z.boolean().optional(),
+  rating: z.number().int().min(1).max(5).optional().nullable(),
 });
 
 const ListQuerySchema = z.object({
@@ -99,6 +101,7 @@ function formatCustomer(customer: any) {
     email: customer.contactInfo?.email,
     phone: customer.contactInfo?.phone,
     address: customer.contactInfo?.address?.street,
+    rating: customer.rating ?? null,
   };
 }
 
@@ -142,6 +145,7 @@ export function registerCustomerRoutes(
       ...(body.notes !== undefined ? { notes: body.notes } : {}),
       ...(body.source !== undefined ? { source: body.source } : {}),
       ...(body.kleinanzeigenId !== undefined ? { kleinanzeigenId: body.kleinanzeigenId } : {}),
+      ...(body.rating !== undefined ? { rating: body.rating } : {}),
     };
 
     const customer = customerService.create(input);
@@ -164,6 +168,7 @@ export function registerCustomerRoutes(
         ...(body.source !== undefined ? { source: body.source } : {}),
         ...(body.kleinanzeigenId !== undefined ? { kleinanzeigenId: body.kleinanzeigenId } : {}),
         ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.rating !== undefined ? { rating: body.rating } : {}),
       };
 
       const customer = customerService.update(request.params.id as UUID, input);

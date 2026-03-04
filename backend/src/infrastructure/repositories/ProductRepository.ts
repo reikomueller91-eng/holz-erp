@@ -11,6 +11,8 @@ interface ProductRow {
   quality_grade: string;
   height_mm: number;
   width_mm: number;
+  calc_method: string;
+  volume_divider: number | null;
   description: string | null;
   encrypted_data: string;
   is_active: 0 | 1;
@@ -76,9 +78,10 @@ export class ProductRepository implements IProductRepository {
 
     this.db.run(
       `INSERT INTO products (
-        id, name, wood_type, quality_grade, height_mm, width_mm, description,
+        id, name, wood_type, quality_grade, height_mm, width_mm,
+        calc_method, volume_divider, description,
         encrypted_data, is_active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         product.id,
         product.name, // Plaintext for indexing
@@ -86,6 +89,8 @@ export class ProductRepository implements IProductRepository {
         product.qualityGrade,
         product.dimensions.heightMm,
         product.dimensions.widthMm,
+        product.calcMethod,
+        product.volumeDivider ?? null,
         product.description ?? null, // Plaintext (deprecated, will be removed)
         encryptedData,
         product.isActive ? 1 : 0,
@@ -108,6 +113,8 @@ export class ProductRepository implements IProductRepository {
         quality_grade = ?,
         height_mm = ?,
         width_mm = ?,
+        calc_method = ?,
+        volume_divider = ?,
         description = ?,
         encrypted_data = ?,
         is_active = ?,
@@ -119,6 +126,8 @@ export class ProductRepository implements IProductRepository {
         product.qualityGrade,
         product.dimensions.heightMm,
         product.dimensions.widthMm,
+        product.calcMethod,
+        product.volumeDivider ?? null,
         product.description ?? null, // Plaintext (deprecated)
         encryptedData,
         product.isActive ? 1 : 0,
@@ -188,6 +197,8 @@ export class ProductRepository implements IProductRepository {
         heightMm: row.height_mm,
         widthMm: row.width_mm,
       },
+      calcMethod: row.calc_method as any,
+      ...(row.volume_divider !== null ? { volumeDivider: row.volume_divider } : {}),
       description: decrypted.description,
       isActive: row.is_active === 1,
       createdAt: row.created_at as ISODateTime,

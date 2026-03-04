@@ -1,23 +1,21 @@
-längenangebe in meter und nicht mm. breite höhe soll in mm bleiben
-
-raiting für kunden einführen
-
 neues angebot -> +Position biem einfügen von neuen Position werden Spaltennamen benötigt. aktuell sind der name, die länge, anzahl und preis angegeben. hierfür muss der spaltenname angeben werden. 
 
-angebote sollen auch den bruttopreis zeigen. netto, mwst, brutto. der bruttopreis soll hierbei 
+angebote sollen auch den bruttopreis zeigen. netto, mwst, brutto. der bruttopreis soll hierbei abgerundet werden auf volle euro oder aber volle 5 euro beträge. so kann ein preis von 12,67€ auf 12€ abgerundet werden. ein wert von 147,67€ auf 145€ abgerundet werden. hierfür müssen die preise der einzelnen positionen als auch die längen etc dynamisch durchpropiert werden, bis die endsumme erreicht ist. es müssen werte eventuell erhöht oder dynamisch verringert werden, bis der betrag ca. +-0,03 Euro stimmt. diese endsumme soll dann als bruttopreis angezeigt werden.
 
-preisänderung in angebote muss global in der produktübersicht zur preishistorie sichtbar sein.
-
-verknüpfen mit einem kalender bzw kalenderplanungstool um die produktion abschätzen zu können.
-
-wenn ein angebot in einen auftrag umgewandelt wird, muss automatisch und immer ein pdf im hintergrund generiert werden. dieses muss auch über die webseite abrufbar sein.
-
-aufträge deren gültigkeit abgelaufen sind, müssen farblich markiert werden und sollen über ein entsprechendes suchfenster ausgeschlossen oder eingeschlossen werden können.
 
 Das template muss über das frontend veränderbar sein. hierzu muss ein templatesystem verwendet werden.
  
-Produkte müssen nach m² abrechenbar sein, so wie es jetzt ist als auch nach m³. hierfür muss es einen umschalter von m² nach m³ geben. die m2 werte werden direkt eingegeben. die m³ werte wird die grundfläche in mm multiplizert und durch einen variablen teiler dividiert. dies bestimmt den preis pro laufenden meter. die berechneten werde sind hier bruttobeträge.
 
-die mehrwertsteuer muss konfigurierbar sein. 
+
+verknüpfen mit einem kalender bzw kalenderplanungstool um die produktion abschätzen zu können.
 
 du als agent sollst auf eine eingehende email, die ein angebot möchte, die benötigten daten aus der db laden. die entsprechenden produkte heraussuchen und ein angebot erstellen. dieses angebot soll zuerst als pdf an mich gesendet werden. hierzu soll anhand der email automatisch der absender ermittelt werden und dieer soll dann entsprechend in der pdf eingetragen werden. die email muss dann im frontend zum jeweiligen angebot verlinkt werden. eventuell indem automatisch an die email eine ticketnummer angehängt wird. somit sollte die email verlinkt und dort angezeigt werden. eventuell ist es dann auch sinnvoll direkt emails aus dem program zu versenden. diese email soll das angebot direkt als anhang erhalten. die ticketnummer sollte hier angehängt bleiben, damit antworten sich direkt drauf beziehen.
+
+
+
+
+steuernummer (eintellungen einstellbar) muss auf jedem dokument erscheinen. sowie ein lieferhinweis wegen ladungssicherung nach vde. der kunde ist für die ladungssicherung verantwortlich.
+
+unter kunden werden die angebote und aufträge nicht angezeigt und mit ienem fehler beendet.
+http://localhost:8081/api/customers/432da3fb-a31e-45d4-8500-4bacf51afb76/offers
+{"error":"NOT_FOUND","message":"Route not found"}

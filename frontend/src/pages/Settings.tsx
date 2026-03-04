@@ -9,6 +9,7 @@ export default function Settings() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [message, setMessage] = useState('')
   const [sellerAddress, setSellerAddress] = useState('')
+  const [vatPercent, setVatPercent] = useState<number>(19)
   const [addressMessage, setAddressMessage] = useState('')
 
   const { data: status } = useQuery({
@@ -26,6 +27,9 @@ export default function Settings() {
       const { data } = await api.get('/settings')
       if (data && data.sellerAddress) {
         setSellerAddress(data.sellerAddress)
+      }
+      if (data && data.vatPercent !== undefined) {
+        setVatPercent(data.vatPercent)
       }
       return data
     },
@@ -65,7 +69,7 @@ export default function Settings() {
 
   const updateSettingsMutation = useMutation({
     mutationFn: async () => {
-      await api.put('/settings', { sellerAddress })
+      await api.put('/settings', { sellerAddress, vatPercent })
     },
     onSuccess: () => {
       setAddressMessage('Absenderadresse erfolgreich gespeichert')
@@ -118,7 +122,7 @@ export default function Settings() {
         )}
 
         <form onSubmit={handleAddressChange} className="space-y-4 max-w-md">
-          <p className="text-sm text-gray-500 mb-2">Diese Adresse wird zentral für alle neu erstellten Angebote und Rechnungen verwendet.</p>
+          <p className="text-sm text-gray-500 mb-2">Diese Einstellungen werden zentral für alle neu erstellten Angebote und Rechnungen verwendet.</p>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Absenderadresse
@@ -128,15 +132,29 @@ export default function Settings() {
               onChange={(e) => setSellerAddress(e.target.value)}
               className="input min-h-[120px]"
               placeholder="HolzERP Musterfirma&#10;Musterstraße 1&#10;12345 Musterstadt"
-              required
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Mehrwertsteuersatz (%)
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              max="100"
+              value={vatPercent}
+              onChange={(e) => setVatPercent(Number(e.target.value))}
+              className="input max-w-[120px]"
+            />
+            <p className="text-xs text-gray-500 mt-1">Wird bei der Erstellung neuer Angebote und Aufträge verwendet.</p>
           </div>
           <button
             type="submit"
             disabled={updateSettingsMutation.isPending}
             className="btn-primary"
           >
-            {updateSettingsMutation.isPending ? 'Wird gespeichert...' : 'Adresse speichern'}
+            {updateSettingsMutation.isPending ? 'Wird gespeichert...' : 'Einstellungen speichern'}
           </button>
         </form>
       </div>
@@ -211,18 +229,22 @@ export default function Settings() {
         </div>
         <div className="flex flex-wrap gap-4">
           <a
-            href="/api/export/customers"
+            href="/api/system/export/json"
+            target="_blank"
+            rel="noopener noreferrer"
             className="btn-secondary flex items-center gap-2"
           >
             <Download className="w-4 h-4" />
-            Kunden exportieren
+            Vollständiger Export (JSON)
           </a>
           <a
-            href="/api/export/products"
+            href="/api/system/export/csv"
+            target="_blank"
+            rel="noopener noreferrer"
             className="btn-secondary flex items-center gap-2"
           >
             <Download className="w-4 h-4" />
-            Produkte exportieren
+            Vollständiger Export (CSV)
           </a>
           <button className="btn-secondary flex items-center gap-2">
             <Upload className="w-4 h-4" />

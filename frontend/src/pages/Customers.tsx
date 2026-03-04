@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, Phone, Mail, MapPin, AlertCircle, WifiOff } from 'lucide-react'
+import { Plus, Edit2, Trash2, Phone, Mail, MapPin, AlertCircle, WifiOff, Star } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../lib/api'
 import { customerSourceLabels } from '../lib/utils'
@@ -13,8 +13,8 @@ type CustomerSource = 'direct' | 'kleinanzeigen' | 'referral' | 'other'
 // Hilfsfunktion für API-Fehler
 function getErrorMessage(error: unknown): string {
   if (typeof error === 'object' && error !== null) {
-    const err = error as { 
-      response?: { data?: { message?: string; error?: string } }; 
+    const err = error as {
+      response?: { data?: { message?: string; error?: string } };
       message?: string;
       code?: string;
     }
@@ -66,7 +66,7 @@ export default function Customers() {
     },
   })
 
-  const filteredCustomers = customers.filter(c => 
+  const filteredCustomers = customers.filter(c =>
     c?.name?.toLowerCase().includes(search.toLowerCase()) ||
     c?.email?.toLowerCase().includes(search.toLowerCase()) ||
     c?.phone?.toLowerCase().includes(search.toLowerCase())
@@ -74,8 +74,8 @@ export default function Customers() {
 
   // Netzwerkfehler anzeigen
   if (error && !isLoading) {
-    const isNetworkError = (error as { code?: string }).code === 'ERR_NETWORK' || 
-                           getErrorMessage(error).includes('nicht erreichbar')
+    const isNetworkError = (error as { code?: string }).code === 'ERR_NETWORK' ||
+      getErrorMessage(error).includes('nicht erreichbar')
     return (
       <div className="space-y-6">
         <PageHeader title="Kunden" />
@@ -95,10 +95,10 @@ export default function Customers() {
 
   return (
     <div className="space-y-6">
-      <PageHeader 
+      <PageHeader
         title="Kunden"
         action={
-          <button 
+          <button
             onClick={() => { setEditingCustomer(null); setShowModal(true); }}
             className="btn-primary flex items-center gap-2"
           >
@@ -108,7 +108,7 @@ export default function Customers() {
         }
       />
 
-      <SearchInput 
+      <SearchInput
         value={search}
         onChange={setSearch}
         placeholder="Kunden suchen..."
@@ -125,7 +125,19 @@ export default function Customers() {
               <div key={customer.id} className="p-4 hover:bg-gray-50 transition-colors">
                 <div className="flex items-start justify-between">
                   <Link to={`/customers/${customer.id}`} className="flex-1">
-                    <h3 className="font-semibold text-gray-900">{customer.name}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-gray-900">{customer.name}</h3>
+                      {customer.rating && (
+                        <span className="flex items-center gap-0.5">
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <Star
+                              key={i}
+                              className={`w-3 h-3 ${i < (customer.rating ?? 0) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`}
+                            />
+                          ))}
+                        </span>
+                      )}
+                    </div>
                     <div className="mt-2 space-y-1 text-sm text-gray-500">
                       {customer.email && (
                         <div className="flex items-center gap-2">
@@ -174,9 +186,9 @@ export default function Customers() {
       </div>
 
       {showModal && (
-        <CustomerModal 
-          customer={editingCustomer} 
-          onClose={() => setShowModal(false)} 
+        <CustomerModal
+          customer={editingCustomer}
+          onClose={() => setShowModal(false)}
         />
       )}
 
@@ -204,6 +216,7 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
     address: customer?.address || '',
     notes: customer?.notes || '',
     source: (customer?.source || 'direct') as CustomerSource,
+    rating: customer?.rating ?? null as number | null,
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -239,7 +252,7 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
       footer={
         <>
           <button onClick={onClose} className="btn-secondary" disabled={isSubmitting}>Abbrechen</button>
-          <button 
+          <button
             onClick={handleSubmit}
             disabled={!formData.name.trim() || isSubmitting}
             className="btn-primary"
@@ -307,6 +320,28 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
           </select>
         </div>
         <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Bewertung</label>
+          <div className="flex items-center gap-1">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setFormData({ ...formData, rating: formData.rating === i + 1 ? null : i + 1 })}
+                className="p-0.5 rounded focus:outline-none"
+                disabled={isSubmitting}
+              >
+                <Star
+                  className={`w-6 h-6 transition-colors ${(formData.rating ?? 0) > i ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300 hover:text-yellow-300'
+                    }`}
+                />
+              </button>
+            ))}
+            {formData.rating && (
+              <span className="text-xs text-gray-500 ml-1">{formData.rating} von 5</span>
+            )}
+          </div>
+        </div>
+        <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Notizen</label>
           <textarea
             value={formData.notes}
@@ -317,6 +352,6 @@ function CustomerModal({ customer, onClose }: { customer: Customer | null; onClo
           />
         </div>
       </div>
-    </Modal>
+    </Modal >
   )
 }

@@ -52,15 +52,34 @@ export default function ProductDetail() {
               <p className="text-sm text-gray-500">Maße</p>
               <p className="font-medium text-gray-900">
                 {product.heightMm} mm × {product.widthMm} mm
-                {product.lengthMm && ` × ${product.lengthMm} mm`}
+                {product.lengthMm && ` × ${(product.lengthMm / 1000).toFixed(3)} m`}
               </p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Aktueller Preis</p>
-              <p className="text-2xl font-bold text-primary-600">
-                €{product.currentPricePerM2.toFixed(2)} <span className="text-sm text-gray-500">/ m²</span>
+              <p className="text-sm text-gray-500">Abrechnungsart</p>
+              <p className="font-medium text-gray-900">
+                {product.calcMethod === 'm2_sorted' ? 'm² (Breite berücksichtigt)' :
+                  product.calcMethod === 'm2_unsorted' ? 'm² (Unsortiert / Ohne Breite)' :
+                    'm³ -> Lfm (über Teiler)'}
               </p>
             </div>
+            {product.calcMethod === 'volume_divided' ? (
+              <div>
+                <p className="text-sm text-gray-500">Teiler (Volumen)</p>
+                <p className="font-medium text-gray-900">{product.volumeDivider}</p>
+                <p className="text-sm text-gray-500 mt-2">Berechneter Laufmeterpreis</p>
+                <p className="text-2xl font-bold text-primary-600">
+                  €{((product.heightMm * product.widthMm) / (product.volumeDivider || 1)).toFixed(2)} <span className="text-sm text-gray-500">/ Lfm</span>
+                </p>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm text-gray-500">Aktueller Bruttopreis</p>
+                <p className="text-2xl font-bold text-primary-600">
+                  €{product.currentPricePerM2.toFixed(2)} <span className="text-sm text-gray-500">/ m²</span>
+                </p>
+              </div>
+            )}
             {product.description && (
               <div>
                 <p className="text-sm text-gray-500">Beschreibung</p>

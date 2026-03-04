@@ -70,6 +70,17 @@ export default function OrderDetail() {
               Rechnung erstellen
             </button>
           )}
+          {order.pdfPath && (
+            <a
+              href={`/api/orders/${order.id}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary flex items-center gap-2"
+            >
+              <FileText className="w-4 h-4" />
+              Auftrags-PDF
+            </a>
+          )}
           {invoice && (
             <Link
               to={`/invoices/${invoice.id}`}
@@ -111,7 +122,7 @@ export default function OrderDetail() {
                   <div key={item.id} className="p-4 flex items-center justify-between">
                     <div>
                       <p className="font-medium text-gray-900">
-                        {item.heightMm}x{item.widthMm}x{item.lengthMm}mm (Qualität: {item.quality})
+                        {item.heightMm}x{item.widthMm}mm × {(item.lengthMm / 1000).toFixed(3)} (Qualität: {item.quality})
                       </p>
                     </div>
                     <div className="flex items-center gap-4">

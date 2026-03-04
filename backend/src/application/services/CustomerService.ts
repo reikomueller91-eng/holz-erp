@@ -11,6 +11,7 @@ export interface CreateCustomerInput {
   notes?: string;
   source?: CustomerSource;
   kleinanzeigenId?: string;
+  rating?: number;
 }
 
 export interface UpdateCustomerInput {
@@ -20,6 +21,7 @@ export interface UpdateCustomerInput {
   source?: CustomerSource;
   kleinanzeigenId?: string;
   isActive?: boolean;
+  rating?: number | null;
 }
 
 /**
@@ -27,7 +29,7 @@ export interface UpdateCustomerInput {
  * Depends on ICustomerRepository (port) — no direct DB access.
  */
 export class CustomerService {
-  constructor(private readonly repo: ICustomerRepository) {}
+  constructor(private readonly repo: ICustomerRepository) { }
 
   getById(id: UUID): Customer {
     const customer = this.repo.findById(id);
@@ -53,6 +55,9 @@ export class CustomerService {
       ...(input.kleinanzeigenId !== undefined
         ? { kleinanzeigenId: input.kleinanzeigenId }
         : {}),
+      ...(input.rating !== undefined
+        ? { rating: input.rating }
+        : {}),
     });
 
     return this.repo.create(customer);
@@ -75,6 +80,7 @@ export class CustomerService {
         ? { kleinanzeigenId: input.kleinanzeigenId }
         : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      ...(input.rating !== undefined ? { rating: input.rating ?? undefined } : {}),
     });
   }
 

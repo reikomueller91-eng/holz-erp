@@ -11,8 +11,8 @@ export default function InvoiceDetail() {
   const { data: invoice } = useQuery({
     queryKey: ['invoice', id],
     queryFn: async () => {
-      const { data } = await api.get<Invoice>(`/invoices/${id}`)
-      return data
+      const { data } = await api.get<{ invoice: Invoice; customer: any; versions: any[] }>(`/invoices/${id}`)
+      return data.invoice
     },
   })
 
@@ -45,7 +45,7 @@ export default function InvoiceDetail() {
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-gray-900">Rechnung #{invoice.id.slice(0, 8)}</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Rechnung {invoice.invoiceNumber || `#${invoice.id.slice(0, 8)}`}</h1>
           <p className="text-gray-500">Version {invoice.version}</p>
         </div>
         <div className="flex items-center gap-2">

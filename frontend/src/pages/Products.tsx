@@ -148,7 +148,9 @@ function ProductModal({ product, onClose }: { product: Product | null; onClose: 
     qualityGrade: product?.qualityGrade || 'A',
     heightMm: product?.heightMm || 20,
     widthMm: product?.widthMm || 100,
-    currentPricePerM2: product?.currentPricePerM2 || 50,
+    calcMethod: product?.calcMethod || 'm2_sorted',
+    volumeDivider: product?.volumeDivider || 1750,
+    currentPricePerM2: product?.currentPricePerM2 || 0,
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -208,20 +210,35 @@ function ProductModal({ product, onClose }: { product: Product | null; onClose: 
               {QUALITY_GRADES.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Abrechnungsart</label>
+            <select value={formData.calcMethod} onChange={(e) => setFormData({ ...formData, calcMethod: e.target.value as any })} className="input" disabled={isSubmitting}>
+              <option value="m2_sorted">m² (Breite berücksichtigt)</option>
+              <option value="m2_unsorted">m² (Unsortiert / Ohne Breite)</option>
+              <option value="volume_divided">m³ -&gt; Lfm (über Teiler)</option>
+            </select>
+          </div>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Höhe (mm)</label>
             <input type="number" value={formData.heightMm} onChange={(e) => setFormData({ ...formData, heightMm: Number(e.target.value) })} className="input" disabled={isSubmitting} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Breite (mm)</label>
-            <input type="number" value={formData.widthMm} onChange={(e) => setFormData({ ...formData, widthMm: Number(e.target.value) })} className="input" disabled={isSubmitting} />
+            <input type="number" value={formData.widthMm} onChange={(e) => setFormData({ ...formData, widthMm: Number(e.target.value) })} className="input" disabled={isSubmitting || formData.calcMethod === 'm2_unsorted'} title={formData.calcMethod === 'm2_unsorted' ? 'Breite bei unsortierten Brettern irrelevant' : ''} />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Preis €/m²</label>
-            <input type="number" step="0.01" value={formData.currentPricePerM2} onChange={(e) => setFormData({ ...formData, currentPricePerM2: Number(e.target.value) })} className="input" disabled={isSubmitting} />
-          </div>
+          {formData.calcMethod === 'volume_divided' ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Teiler (Volumen)</label>
+              <input type="number" value={formData.volumeDivider} onChange={(e) => setFormData({ ...formData, volumeDivider: Number(e.target.value) })} className="input" disabled={isSubmitting} />
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Preis Brutto/m²</label>
+              <input type="number" step="0.01" value={formData.currentPricePerM2} onChange={(e) => setFormData({ ...formData, currentPricePerM2: Number(e.target.value) })} className="input" disabled={isSubmitting} />
+            </div>
+          )}
         </div>
       </div>
     </Modal>

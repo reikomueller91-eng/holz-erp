@@ -1,5 +1,4 @@
 import type { Order, OrderItem, ProductionStatus } from '../../domain/order/Order';
-import { transitionOrder, updateItemProduction } from '../../domain/order/Order';
 import type { IDatabase } from '../../application/ports/IDatabase';
 import type { ICryptoService } from '../../application/ports/ICryptoService';
 import type { UUID, OrderStatus } from '../../shared/types';
@@ -24,6 +23,7 @@ interface OrderRow {
   created_at: string;
   updated_at: string;
   finished_at?: string;
+  pdf_path?: string;
 }
 
 interface OrderEncryptedData {
@@ -108,8 +108,8 @@ export class OrderRepository implements IOrderRepository {
     this.db.run(
       `INSERT INTO orders (
         id, order_number, offer_id, status, customer_id, encrypted_data,
-        created_at, updated_at, finished_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        created_at, updated_at, finished_at, pdf_path
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         order.id,
         order.orderNumber,
@@ -120,6 +120,7 @@ export class OrderRepository implements IOrderRepository {
         order.createdAt,
         order.updatedAt,
         order.finishedAt ?? null,
+        order.pdfPath ?? null,
       ]
     );
   }
@@ -140,13 +141,15 @@ export class OrderRepository implements IOrderRepository {
         status = ?,
         encrypted_data = ?,
         updated_at = ?,
-        finished_at = ?
+        finished_at = ?,
+        pdf_path = ?
       WHERE id = ?`,
       [
         order.status,
         encryptedData,
         order.updatedAt,
         order.finishedAt ?? null,
+        order.pdfPath ?? null,
         order.id,
       ]
     );
@@ -171,6 +174,7 @@ export class OrderRepository implements IOrderRepository {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       finishedAt: row.finished_at,
+      pdfPath: row.pdf_path,
     };
   }
 }

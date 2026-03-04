@@ -104,9 +104,10 @@ export function calcOfferTotals(items: OfferItem[], vatPercent: number): {
   vatAmount: number;
   grossSum: number;
 } {
-  const netSum = items.reduce((sum, item) => sum + item.netTotal, 0);
-  const vatAmount = Math.round(netSum * vatPercent) / 100;
-  const grossSum = netSum + vatAmount;
+  // Since the user enters prices as Brutto, the item.netTotal field now actually holds the Gross value.
+  const grossSum = items.reduce((sum, item) => sum + item.netTotal, 0);
+  const netSum = Math.round((grossSum / (1 + vatPercent / 100)) * 100) / 100;
+  const vatAmount = Math.round((grossSum - netSum) * 100) / 100;
 
   return { netSum, vatAmount, grossSum };
 }

@@ -59,6 +59,7 @@ export default function Invoices() {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rechnung #</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kunde</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Datum</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fällig</th>
@@ -71,6 +72,9 @@ export default function Invoices() {
               {filteredInvoices?.map((invoice) => (
                 <tr key={invoice.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 font-medium text-gray-900">
+                    {invoice.invoiceNumber || '-'}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600">
                     {invoice.customerName || 'Unbekannt'}
                   </td>
                   <td className="px-6 py-4 text-gray-600">

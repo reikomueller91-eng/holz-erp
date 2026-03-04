@@ -10,8 +10,10 @@ const CreateProductBody = z.object({
   name: z.string().min(1).max(200),
   woodType: z.enum(WOOD_TYPES),
   qualityGrade: z.enum(QUALITY_GRADES),
-  heightMm: z.number().int().positive(),
-  widthMm: z.number().int().positive(),
+  heightMm: z.number().int().nonnegative(), // changed allowing 0 for m2_unsorted
+  widthMm: z.number().int().nonnegative(), // changed allowing 0 for m2_unsorted
+  calcMethod: z.enum(['m2_unsorted', 'm2_sorted', 'volume_divided']).default('m2_sorted'),
+  volumeDivider: z.number().int().positive().optional(),
   description: z.string().max(2000).optional(),
   // Accept both field names
   initialPricePerM2: z.number().positive().optional(),
@@ -23,8 +25,10 @@ const UpdateProductBody = z.object({
   name: z.string().min(1).max(200).optional(),
   woodType: z.enum(WOOD_TYPES).optional(),
   qualityGrade: z.enum(QUALITY_GRADES).optional(),
-  heightMm: z.number().int().positive().optional(),
-  widthMm: z.number().int().positive().optional(),
+  heightMm: z.number().int().nonnegative().optional(),
+  widthMm: z.number().int().nonnegative().optional(),
+  calcMethod: z.enum(['m2_unsorted', 'm2_sorted', 'volume_divided']).optional(),
+  volumeDivider: z.number().int().positive().nullable().optional(),
   description: z.string().max(2000).optional(),
   isActive: z.boolean().optional(),
   currentPricePerM2: z.number().positive().optional(),
@@ -54,7 +58,7 @@ export async function productRoutes(fastify: FastifyInstance) {
     async (request) => {
       const query = ListQuerySchema.parse(request.query);
       const products = await productService.list(query);
-      
+
       // Flatten and add currentPricePerM2 to each product
       const productsWithPrice = await Promise.all(
         products.map(async (product) => {
@@ -69,7 +73,7 @@ export async function productRoutes(fastify: FastifyInstance) {
           };
         })
       );
-      
+
       return productsWithPrice; // Return array directly
     }
   );
@@ -82,7 +86,7 @@ export async function productRoutes(fastify: FastifyInstance) {
       const product = await productService.getById(request.params.id as UUID);
       const priceHistory = await productService.getPriceHistory(product.id);
       const currentPrice = priceHistory[0];
-      
+
       return {
         ...product,
         heightMm: product.dimensions.heightMm,
@@ -129,14 +133,16 @@ export async function productRoutes(fastify: FastifyInstance) {
     { preHandler: requireUnlocked },
     async (request) => {
       const body = UpdateProductBody.parse(request.body);
-      
+
       const updates: Record<string, unknown> = {};
       if (body.name !== undefined) updates.name = body.name;
       if (body.woodType !== undefined) updates.woodType = body.woodType;
       if (body.qualityGrade !== undefined) updates.qualityGrade = body.qualityGrade;
+      if (body.calcMethod !== undefined) updates.calcMethod = body.calcMethod;
+      if (body.volumeDivider !== undefined) updates.volumeDivider = body.volumeDivider;
       if (body.description !== undefined) updates.description = body.description;
       if (body.isActive !== undefined) updates.isActive = body.isActive;
-      
+
       if (body.heightMm !== undefined || body.widthMm !== undefined) {
         const current = await productService.getById(request.params.id as UUID);
         updates.dimensions = {
@@ -195,7 +201,7 @@ export async function productRoutes(fastify: FastifyInstance) {
     { preHandler: requireUnlocked },
     async (request) => {
       const body = SetPriceBody.parse(request.body);
-      
+
       const entry = await productService.addPrice({
         productId: request.params.id as UUID,
         pricePerM2: body.pricePerM2,

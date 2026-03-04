@@ -5,6 +5,8 @@ import type { UUID, ISODateTime, WoodType, QualityGrade } from '../../shared/typ
  * Products are not encrypted — they are catalog data, not customer data.
  */
 
+export type PriceCalculationMethod = 'm2_unsorted' | 'm2_sorted' | 'volume_divided';
+
 export interface Dimensions {
   heightMm: number;
   widthMm: number;
@@ -16,6 +18,8 @@ export interface Product {
   woodType: WoodType;
   qualityGrade: QualityGrade;
   dimensions: Dimensions;
+  calcMethod: PriceCalculationMethod;
+  volumeDivider?: number;
   description?: string;
   isActive: boolean;
   createdAt: ISODateTime;
@@ -39,7 +43,7 @@ export interface PriceHistory {
  * Length must be provided in mm.
  */
 export function calcAreaM2(dims: Dimensions, lengthMm: number): number {
-  return (dims.heightMm / 1000) * (dims.widthMm / 1000) * (lengthMm / 1000);
+  return (dims.widthMm / 1000) * (lengthMm / 1000);
 }
 
 /**
@@ -63,6 +67,8 @@ export interface ProductRow {
   quality_grade: QualityGrade;
   height_mm: number;
   width_mm: number;
+  calc_method: PriceCalculationMethod;
+  volume_divider: number | null;
   description: string | null;
   is_active: 0 | 1;
   created_at: ISODateTime;
@@ -76,6 +82,8 @@ export function rowToProduct(row: ProductRow): Product {
     woodType: row.wood_type,
     qualityGrade: row.quality_grade,
     dimensions: { heightMm: row.height_mm, widthMm: row.width_mm },
+    calcMethod: row.calc_method,
+    ...(row.volume_divider !== null ? { volumeDivider: row.volume_divider } : {}),
     ...(row.description !== null ? { description: row.description } : {}),
     isActive: row.is_active === 1,
     createdAt: row.created_at,

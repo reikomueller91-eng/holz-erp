@@ -30,6 +30,7 @@ export interface Order {
   grossSum: number;
   productionStatus: ProductionStatus;
   notes?: string;
+  pdfPath?: string;
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
   finishedAt?: ISODateTime;
@@ -51,17 +52,17 @@ export function transitionOrder(order: Order, to: OrderStatus): Order {
   if (!allowed.includes(to)) {
     throw new InvalidTransitionError('Order', order.status, to);
   }
-  
+
   const updates: Partial<Order> = {
     status: to,
     updatedAt: new Date().toISOString() as ISODateTime,
   };
-  
+
   // Set finishedAt when transitioning to finished
   if (to === 'finished') {
     updates.finishedAt = new Date().toISOString() as ISODateTime;
   }
-  
+
   return { ...order, ...updates };
 }
 
@@ -72,28 +73,28 @@ export function updateItemProduction(
 ): Order {
   const items = order.items.map(item => {
     if (item.id !== itemId) return item;
-    
+
     const newQuantityProduced = Math.min(quantityProduced, item.quantity);
-    const productionStatus: ProductionStatus = 
+    const productionStatus: ProductionStatus =
       newQuantityProduced === 0 ? 'not_started' :
-      newQuantityProduced < item.quantity ? 'in_progress' :
-      'completed';
-    
+        newQuantityProduced < item.quantity ? 'in_progress' :
+          'completed';
+
     return {
       ...item,
       quantityProduced: newQuantityProduced,
       productionStatus,
     };
   });
-  
+
   // Calculate overall production status
   const allCompleted = items.every(i => i.productionStatus === 'completed');
   const someStarted = items.some(i => i.productionStatus !== 'not_started');
   const productionStatus: ProductionStatus =
     allCompleted ? 'completed' :
-    someStarted ? 'in_progress' :
-    'not_started';
-  
+      someStarted ? 'in_progress' :
+        'not_started';
+
   return {
     ...order,
     items,
@@ -107,9 +108,10 @@ export function calcOrderTotals(items: OrderItem[], vatPercent: number): {
   vatAmount: number;
   grossSum: number;
 } {
-  const netSum = items.reduce((sum, item) => sum + item.netTotal, 0);
-  const vatAmount = Math.round(netSum * vatPercent) / 100;
-  const grossSum = netSum + vatAmount;
-  
+  // Since the user enters prices as Brutto, the item.netTotal field now actually holds the Gross value.
+  const grossSum = items.reduce((sum, item) => sum + item.netTotal, 0);
+  const netSum = Math.round((grossSum / (1 + vatPercent / 100)) * 100) / 100;
+  const vatAmount = Math.round((grossSum - netSum) * 100) / 100;
+
   return { netSum, vatAmount, grossSum };
 }

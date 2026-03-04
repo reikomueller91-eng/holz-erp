@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Invoice } from '../../domain/invoice/Invoice';
 import type { Offer } from '../../domain/offer/Offer';
+import type { Order } from '../../domain/order/Order';
 import type { ICustomerRepository } from '../../application/ports/ICustomerRepository';
 
 export interface PDFGenerationResult {
@@ -154,6 +155,70 @@ export class PDFService {
 
     // Footer
     doc.fontSize(8).text('Dieses Angebot ist freibleibend. Wir freuen uns auf Ihren Auftrag.', 50, 700);
+
+    doc.end();
+
+    return new Promise((resolve, reject) => {
+      stream.on('finish', () => {
+        resolve({ filePath, fileName });
+      });
+      stream.on('error', reject);
+    });
+  }
+
+  async generateOrderPDF(order: Order, sellerAddress: string): Promise<PDFGenerationResult> {
+    const customer = await this.customerRepo.findById(order.customerId);
+    const fileName = `order-${order.orderNumber}.pdf`;
+    const filePath = path.join(this.outputDir, fileName);
+
+    const doc = new PDFDocument();
+    const stream = fs.createWriteStream(filePath);
+    doc.pipe(stream);
+
+    // Header
+    doc.fontSize(20).text('AUFTRAGSBESTÄTIGUNG', 50, 50);
+    doc.fontSize(12).text(`Auftragsnummer: ${order.orderNumber}`, 50, 80);
+    const dateStr = order.createdAt.split('T')[0];
+    doc.text(`Datum: ${dateStr}`, 50, 95);
+
+    // Seller info
+    doc.fontSize(10).text('Verkäufer:', 50, 140);
+    doc.fontSize(10).text(sellerAddress, 50, 155);
+
+    // Customer info
+    doc.fontSize(10).text('Kunde:', 350, 140);
+    doc.fontSize(10).text(customer ? customer.name : 'Unbekannter Kunde', 350, 155);
+
+    // Line items table
+    doc.fontSize(12).text('Auftragspositionen', 50, 220);
+
+    let y = 245;
+    doc.fontSize(9);
+    doc.text('Pos', 50, y);
+    doc.text('Artikel', 80, y);
+    doc.text('Menge', 250, y);
+    doc.text('Preis/Stück', 320, y);
+    doc.text('Gesamt', 420, y);
+
+    y += 15;
+    order.items.forEach((item, index) => {
+      doc.text(`${index + 1}`, 50, y);
+      doc.text(`Holzprodukt ${item.lengthMm}mm`, 80, y, { width: 160 });
+      doc.text(`${item.quantity} Stk`, 250, y);
+      doc.text(this.formatCurrency(item.pricePerM2), 320, y);
+      doc.text(this.formatCurrency(item.netTotal), 420, y);
+      y += 20;
+    });
+
+    // Totals
+    y += 20;
+    doc.fontSize(10);
+    doc.text(`Nettobetrag: ${this.formatCurrency(order.netSum)}`, 320, y);
+    doc.text(`MwSt (${order.vatPercent}%): ${this.formatCurrency(order.vatAmount)}`, 320, y + 15);
+    doc.fontSize(12).text(`Gesamtbetrag: ${this.formatCurrency(order.grossSum)}`, 320, y + 35);
+
+    // Footer
+    doc.fontSize(8).text('Wir danken für Ihren Auftrag!', 50, 700);
 
     doc.end();
 

@@ -129,7 +129,7 @@ function ClusterCard({ cluster, onStartProduction }: {
         <div>
           <h3 className="font-semibold text-gray-900">{cluster.productName}</h3>
           <p className="text-sm text-gray-500">
-            {cluster.heightMm} × {cluster.widthMm} × {cluster.lengthMm} mm · Qualität {cluster.quality}
+            {cluster.heightMm} × {cluster.widthMm} mm × {(cluster.lengthMm / 1000).toFixed(3)} m · Qualität {cluster.quality}
           </p>
         </div>
         <button
@@ -310,7 +310,7 @@ function ProductionMode({ cluster, onExit, clusters, onSwitchCluster }: {
           <div>
             <h1 className="text-xl font-bold">{cluster.productName}</h1>
             <p className="text-gray-400 text-sm">
-              {cluster.heightMm} × {cluster.widthMm} × {cluster.lengthMm} mm · Qualität {cluster.quality}
+              {cluster.heightMm} × {cluster.widthMm} mm × {(cluster.lengthMm / 1000).toFixed(3)} m · Qualität {cluster.quality}
             </p>
           </div>
         </div>
