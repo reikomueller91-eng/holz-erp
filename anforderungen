@@ -1,8 +1,18 @@
-Beim klick auf ein angebot in der angebotsliste soll sich dies öffnen. das selbe auch bei produkten. bei kunden ist dies bereits implemeniter.
+längenangebe in meter und nicht mm. breite höhe soll in mm bleiben
 
-Angebote müssen veränderbar sein. in der art, dass sich auch artikel sowie deren menge sich ändern können. auch preise können sich eventuell ändern. das pdf muss dann neu erzeugt werden können.
+raiting für kunden einführen
 
+neues angebot -> +Position biem einfügen von neuen Position werden Spaltennamen benötigt. aktuell sind der name, die länge, anzahl und preis angegeben. hierfür muss der spaltenname angeben werden. 
 
+angebote sollen auch den bruttopreis zeigen. netto, mwst, brutto. der bruttopreis soll hierbei 
+
+preisänderung in angebote muss global in der produktübersicht zur preishistorie sichtbar sein.
+
+verknüpfen mit einem kalender bzw kalenderplanungstool um die produktion abschätzen zu können.
+
+wenn ein angebot in einen auftrag umgewandelt wird, muss automatisch und immer ein pdf im hintergrund generiert werden. dieses muss auch über die webseite abrufbar sein.
+
+aufträge deren gültigkeit abgelaufen sind, müssen farblich markiert werden und sollen über ein entsprechendes suchfenster ausgeschlossen oder eingeschlossen werden können.
 
 Das template muss über das frontend veränderbar sein. hierzu muss ein templatesystem verwendet werden.
  

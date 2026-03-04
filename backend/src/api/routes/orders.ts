@@ -48,7 +48,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
     { preHandler: requireUnlocked },
     async (request) => {
       const { status, customerId, limit, offset } = request.query;
-      
+
       const orders = await orderRepo.findAll({
         status: status as OrderStatus | undefined,
         customerId: customerId as UUID | undefined,
@@ -56,7 +56,22 @@ export async function orderRoutes(fastify: FastifyInstance) {
         offset: offset ? parseInt(offset) : undefined,
       });
 
-      return { orders };
+      // Resolve customer names
+      const customerIds = new Set(orders.map(o => o.customerId));
+      const customerNames = new Map<string, string>();
+      for (const cid of customerIds) {
+        try {
+          const customer = await customerRepo.findById(cid);
+          if (customer) customerNames.set(cid, customer.name);
+        } catch { /* ignore */ }
+      }
+
+      const ordersWithNames = orders.map(o => ({
+        ...o,
+        customerName: customerNames.get(o.customerId) ?? 'Unbekannt',
+      }));
+
+      return { orders: ordersWithNames };
     }
   );
 
@@ -65,30 +80,75 @@ export async function orderRoutes(fastify: FastifyInstance) {
     '/orders/production',
     { preHandler: requireUnlocked },
     async () => {
-      const orders = await orderRepo.findAll({ 
-        status: 'in_production' as OrderStatus 
+      // Load all open orders (new + in_production)
+      const newOrders = await orderRepo.findAll({
+        status: 'new' as OrderStatus
       });
+      const inProductionOrders = await orderRepo.findAll({
+        status: 'in_production' as OrderStatus
+      });
+      const orders = [...newOrders, ...inProductionOrders];
 
-      // Aggregate by product
+      // Build product name cache
+      const productIds = new Set<string>();
+      const customerIds = new Set<string>();
+      for (const order of orders) {
+        customerIds.add(order.customerId);
+        for (const item of order.items) {
+          productIds.add(item.productId);
+        }
+      }
+
+      const productNames = new Map<string, string>();
+      const productRepo = fastify.productRepository as any;
+      for (const pid of productIds) {
+        try {
+          const product = await productRepo.findById(pid);
+          if (product) productNames.set(pid, product.name);
+        } catch { /* ignore */ }
+      }
+
+      const customerNames = new Map<string, string>();
+      for (const cid of customerIds) {
+        try {
+          const customer = await customerRepo.findById(cid);
+          if (customer) customerNames.set(cid, customer.name);
+        } catch { /* ignore */ }
+      }
+
+      // Aggregate by product dimensions + quality
       const productionMap = new Map<string, {
         productId: string;
+        productName: string;
         heightMm: number;
         widthMm: number;
+        lengthMm: number;
         quality: string;
         totalQuantity: number;
         totalProduced: number;
-        orders: Array<{ orderId: string; orderNumber: string; itemId: string; quantity: number; produced: number }>;
+        orders: Array<{
+          orderId: string;
+          orderNumber: string;
+          customerName: string;
+          itemId: string;
+          quantity: number;
+          produced: number;
+          lengthMm: number;
+          status: string;
+        }>;
       }>();
 
       for (const order of orders) {
         for (const item of order.items) {
-          const key = `${item.productId}-${item.heightMm}-${item.widthMm}-${item.quality}`;
-          
+          const key = `${item.productId}-${item.heightMm}-${item.widthMm}-${item.lengthMm}-${item.quality}`;
+
           if (!productionMap.has(key)) {
             productionMap.set(key, {
               productId: item.productId,
+              productName: productNames.get(item.productId) ?? 'Unbekannt',
               heightMm: item.heightMm,
               widthMm: item.widthMm,
+              lengthMm: item.lengthMm,
               quality: item.quality,
               totalQuantity: 0,
               totalProduced: 0,
@@ -102,9 +162,12 @@ export async function orderRoutes(fastify: FastifyInstance) {
           entry.orders.push({
             orderId: order.id,
             orderNumber: order.orderNumber,
+            customerName: customerNames.get(order.customerId) ?? 'Unbekannt',
             itemId: item.id,
             quantity: item.quantity,
             produced: item.quantityProduced,
+            lengthMm: item.lengthMm,
+            status: order.status,
           });
         }
       }
@@ -126,7 +189,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
       }
 
       const customer = await customerRepo.findById(order.customerId);
-      
+
       return {
         order,
         customer,
@@ -203,13 +266,19 @@ export async function orderRoutes(fastify: FastifyInstance) {
     { preHandler: requireUnlocked },
     async (request) => {
       const data = UpdateProductionSchema.parse(request.body);
-      
+
       let order = await orderRepo.findById(request.params.id as UUID);
       if (!order) {
         return fastify.httpErrors.notFound('Order not found');
       }
 
       order = updateItemProduction(order, data.itemId as UUID, data.quantityProduced);
+
+      // Auto-transition to finished if all items are completed
+      if (order.productionStatus === 'completed' && order.status === 'in_production') {
+        order = transitionOrder(order, 'finished');
+      }
+
       await orderRepo.update(order);
 
       return { order };
@@ -222,7 +291,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
     { preHandler: requireUnlocked },
     async (request) => {
       const data = ChangeStatusSchema.parse(request.body);
-      
+
       let order = await orderRepo.findById(request.params.id as UUID);
       if (!order) {
         return fastify.httpErrors.notFound('Order not found');

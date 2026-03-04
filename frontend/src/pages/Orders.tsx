@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Eye, Factory } from 'lucide-react'
+import { Plus, Eye, Factory, FileText } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../lib/api'
 import { formatDate, formatCurrency } from '../lib/utils'
@@ -18,9 +18,14 @@ export default function Orders() {
     },
   })
 
-  const filteredOrders = orders?.filter(o =>
-    o.customerName?.toLowerCase().includes(search.toLowerCase())
-  )
+  const filteredOrders = orders?.filter(o => {
+    const q = search.toLowerCase()
+    return (
+      (o.orderNumber?.toLowerCase().includes(q)) ||
+      (o.customerName?.toLowerCase().includes(q)) ||
+      !search
+    )
+  })
 
   return (
     <div className="space-y-6">
@@ -52,6 +57,7 @@ export default function Orders() {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Auftragsnr.</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kunde</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Datum</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -64,6 +70,9 @@ export default function Orders() {
               {filteredOrders?.map((order) => (
                 <tr key={order.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 font-medium text-gray-900">
+                    {order.orderNumber || '—'}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600">
                     {order.customerName || 'Unbekannt'}
                   </td>
                   <td className="px-6 py-4 text-gray-600">
@@ -76,20 +85,32 @@ export default function Orders() {
                     <div className="flex items-center gap-2">
                       <Factory className="w-4 h-4 text-gray-400" />
                       <span className="text-sm text-gray-600">
-                        {order.productionJobs.filter(j => j.status === 'done').length} / {order.productionJobs.length} fertig
+                        {order.items?.filter(i => i.productionStatus === 'completed').length ?? 0} / {order.items?.length ?? 0} fertig
                       </span>
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right font-medium text-gray-900">
-                    {formatCurrency(order.totalAmount)}
+                    {formatCurrency(order.grossSum ?? order.totalAmount ?? 0)}
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <Link
-                      to={`/orders/${order.id}`}
-                      className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg inline-flex"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </Link>
+                    <div className="flex items-center justify-end gap-2">
+                      {(order.status === 'finished' || order.status === 'invoiced') && (
+                        <Link
+                          to={`/orders/${order.id}`}
+                          className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg inline-flex"
+                          title="Rechnung erstellen / anzeigen"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </Link>
+                      )}
+                      <Link
+                        to={`/orders/${order.id}`}
+                        className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg inline-flex"
+                        title="Details anzeigen"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}

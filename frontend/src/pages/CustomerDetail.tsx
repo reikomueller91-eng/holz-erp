@@ -94,8 +94,8 @@ export default function CustomerDetail() {
               <div className="p-4 text-center text-gray-500 text-sm">Keine Angebote</div>
             ) : (
               offers?.map((offer) => (
-                <Link 
-                  key={offer.id} 
+                <Link
+                  key={offer.id}
                   to={`/offers/${offer.id}`}
                   className="flex items-center justify-between p-4 hover:bg-gray-50"
                 >
@@ -137,8 +137,8 @@ export default function CustomerDetail() {
               <div className="p-4 text-center text-gray-500 text-sm">Keine Aufträge</div>
             ) : (
               orders?.map((order) => (
-                <Link 
-                  key={order.id} 
+                <Link
+                  key={order.id}
                   to={`/orders/${order.id}`}
                   className="flex items-center justify-between p-4 hover:bg-gray-50"
                 >
@@ -147,12 +147,12 @@ export default function CustomerDetail() {
                       {new Date(order.createdAt).toLocaleDateString('de-DE')}
                     </p>
                     <p className="text-sm text-gray-500">
-                      {order.productionJobs.length} Produktionsjobs
+                      {(order.productionJobs ?? []).length} Produktionsjobs
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="font-medium text-gray-900">
-                      €{order.totalAmount.toFixed(2)}
+                      €{(order.grossSum ?? order.totalAmount ?? 0).toFixed(2)}
                     </p>
                     <span className={`
                       text-xs px-2 py-0.5 rounded-full

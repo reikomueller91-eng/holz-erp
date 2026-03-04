@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { 
-  LayoutDashboard, Users, Package, FileText, 
+import {
+  LayoutDashboard, Users, Package, FileText,
   ClipboardList, Receipt, Factory, BarChart3, Settings,
   Lock, Menu, X
 } from 'lucide-react'
@@ -14,8 +14,8 @@ const navItems = [
   { path: '/products', icon: Package, label: 'Produkte' },
   { path: '/offers', icon: FileText, label: 'Angebote' },
   { path: '/orders', icon: ClipboardList, label: 'Aufträge' },
-  { path: '/invoices', icon: Receipt, label: 'Rechnungen' },
   { path: '/production', icon: Factory, label: 'Produktion' },
+  { path: '/invoices', icon: Receipt, label: 'Rechnungen' },
   { path: '/reports', icon: BarChart3, label: 'Berichte' },
 ]
 
@@ -44,14 +44,14 @@ export default function Layout() {
       `}>
         <div className="flex items-center justify-between h-16 px-6 bg-gray-800">
           <span className="text-xl font-bold">HolzERP</span>
-          <button 
+          <button
             onClick={() => setSidebarOpen(false)}
             className="lg:hidden p-2 rounded-md hover:bg-gray-700"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-        
+
         <nav className="mt-6 px-3 space-y-1">
           {navItems.map((item) => (
             <NavLink
@@ -60,8 +60,8 @@ export default function Layout() {
               onClick={() => setSidebarOpen(false)}
               className={({ isActive }) => `
                 flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-                ${isActive 
-                  ? 'bg-primary-600 text-white' 
+                ${isActive
+                  ? 'bg-primary-600 text-white'
                   : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                 }
               `}
@@ -77,8 +77,8 @@ export default function Layout() {
             to="/settings"
             className={({ isActive }) => `
               flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-              ${isActive 
-                ? 'bg-primary-600 text-white' 
+              ${isActive
+                ? 'bg-primary-600 text-white'
                 : 'text-gray-300 hover:bg-gray-800 hover:text-white'
               }
             `}
@@ -119,7 +119,7 @@ export default function Layout() {
 
       {/* Mobile overlay */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />

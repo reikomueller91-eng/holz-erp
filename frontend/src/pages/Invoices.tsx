@@ -15,14 +15,16 @@ export default function Invoices() {
   const { data: invoices, isLoading } = useQuery({
     queryKey: ['invoices'],
     queryFn: async () => {
-      const { data } = await api.get<Invoice[]>('/invoices')
-      return data
+      const { data } = await api.get<{ invoices: Invoice[] }>('/invoices')
+      return data.invoices ?? []
     },
   })
 
-  const filteredInvoices = invoices?.filter(i =>
-    i.customerName?.toLowerCase().includes(search.toLowerCase())
-  )
+  const filteredInvoices = invoices?.filter(i => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return i.customerName?.toLowerCase().includes(q)
+  })
 
   const markPaidMutation = useMutation({
     mutationFn: (id: string) => api.post(`/invoices/${id}/mark-paid`),

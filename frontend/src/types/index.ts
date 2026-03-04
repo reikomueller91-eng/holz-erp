@@ -70,14 +70,22 @@ export interface ProductionJob {
 
 export interface Order {
   id: string
+  orderNumber?: string
   offerId: string
   customerId: string
   customerName?: string
-  status: 'pending' | 'in_production' | 'ready' | 'delivered' | 'cancelled'
-  productionJobs: ProductionJob[]
-  totalAmount: number
+  status: 'new' | 'pending' | 'in_production' | 'finished' | 'ready' | 'delivered' | 'cancelled' | 'invoiced' | 'paid' | 'picked_up'
+  productionJobs?: ProductionJob[]
+  items?: any[]
+  totalAmount?: number
+  netSum?: number
+  vatPercent?: number
+  vatAmount?: number
+  grossSum?: number
+  productionStatus?: string
   createdAt: string
   updatedAt: string
+  finishedAt?: string | null
 }
 
 export interface InvoiceLineItem {
@@ -117,4 +125,27 @@ export interface DashboardStats {
   monthlyRevenue: number
   recentOrders: Order[]
   productionQueue: ProductionJob[]
+}
+
+export interface ProductionOrderRef {
+  orderId: string
+  orderNumber: string
+  customerName: string
+  itemId: string
+  quantity: number
+  produced: number
+  lengthMm: number
+  status: string
+}
+
+export interface ProductionCluster {
+  productId: string
+  productName: string
+  heightMm: number
+  widthMm: number
+  lengthMm: number
+  quality: string
+  totalQuantity: number
+  totalProduced: number
+  orders: ProductionOrderRef[]
 }

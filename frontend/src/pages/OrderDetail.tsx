@@ -2,19 +2,22 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Factory, FileText } from 'lucide-react'
 import api from '../lib/api'
-import type { Order, ProductionJob, Invoice } from '../types'
+import type { Order, Invoice } from '../types'
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
 
-  const { data: order } = useQuery({
+  const { data: orderData } = useQuery({
     queryKey: ['order', id],
     queryFn: async () => {
-      const { data } = await api.get<Order>(`/orders/${id}`)
+      const { data } = await api.get<{ order: Order; customer?: { name: string } }>(`/orders/${id}`)
       return data
     },
   })
+
+  const order = orderData?.order
+  const customerName = orderData?.customer?.name ?? order?.customerName ?? 'Unbekannt'
 
   const { data: invoice } = useQuery({
     queryKey: ['order-invoice', id],
@@ -29,7 +32,7 @@ export default function OrderDetail() {
   })
 
   const updateStatusMutation = useMutation({
-    mutationFn: (status: string) => api.patch(`/orders/${id}`, { status }),
+    mutationFn: (status: string) => api.post(`/orders/${id}/status`, { status }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['order', id] }),
   })
 
@@ -40,9 +43,11 @@ export default function OrderDetail() {
 
   if (!order) return <div className="p-8 text-center">Laden...</div>
 
-  const productionProgress = order.productionJobs.length > 0
-    ? (order.productionJobs.filter(j => j.status === 'done').length / order.productionJobs.length) * 100
-    : 0
+  const items = order.items ?? []
+  const totalTarget = items.reduce((sum, item) => sum + item.quantity, 0)
+  const totalProduced = items.reduce((sum, item) => sum + item.quantityProduced, 0)
+  const productionProgress = totalTarget > 0 ? (totalProduced / totalTarget) * 100 : 0
+  const isFinished = order.status === 'finished'
 
   return (
     <div className="space-y-6">
@@ -51,11 +56,11 @@ export default function OrderDetail() {
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-gray-900">Auftrag #{order.id.slice(0, 8)}</h1>
-          <p className="text-gray-500">{order.customerName}</p>
+          <h1 className="text-2xl font-bold text-gray-900">Auftrag {order.orderNumber ?? `#${order.id.slice(0, 8)}`}</h1>
+          <p className="text-gray-500">{customerName}</p>
         </div>
         <div className="flex items-center gap-2">
-          {!invoice && order.status !== 'cancelled' && (
+          {!invoice && order.status !== 'cancelled' && isFinished && (
             <button
               onClick={() => createInvoiceMutation.mutate()}
               disabled={createInvoiceMutation.isPending}
@@ -84,14 +89,14 @@ export default function OrderDetail() {
             <div className="p-6 border-b border-gray-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Factory className="w-5 h-5 text-gray-500" />
-                <h2 className="text-lg font-semibold">Produktionsjobs</h2>
+                <h2 className="text-lg font-semibold">Produktionsstatus</h2>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-500">
-                  {order.productionJobs.filter(j => j.status === 'done').length} / {order.productionJobs.length} fertig
+                  {items.filter(i => i.productionStatus === 'completed').length} / {items.length} komplett
                 </span>
                 <div className="w-32 bg-gray-200 rounded-full h-2">
-                  <div 
+                  <div
                     className="bg-primary-600 h-2 rounded-full transition-all"
                     style={{ width: `${productionProgress}%` }}
                   />
@@ -99,9 +104,34 @@ export default function OrderDetail() {
               </div>
             </div>
             <div className="divide-y divide-gray-200">
-              {order.productionJobs.map((job) => (
-                <ProductionJobItem key={job.id} job={job} orderId={order.id} />
-              ))}
+              {items.length === 0 ? (
+                <div className="p-6 text-center text-gray-500">Keine Positionen gefunden</div>
+              ) : (
+                items.map((item) => (
+                  <div key={item.id} className="p-4 flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-gray-900">
+                        {item.heightMm}x{item.widthMm}x{item.lengthMm}mm (Qualität: {item.quality})
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className={`
+                        px-2 py-1 text-xs font-medium rounded-full
+                        ${item.productionStatus === 'not_started' ? 'bg-gray-100 text-gray-800' : ''}
+                        ${item.productionStatus === 'in_progress' ? 'bg-blue-100 text-blue-800' : ''}
+                        ${item.productionStatus === 'completed' ? 'bg-green-100 text-green-800' : ''}
+                      `}>
+                        {item.productionStatus === 'not_started' && 'Wartend'}
+                        {item.productionStatus === 'in_progress' && 'In Arbeit'}
+                        {item.productionStatus === 'completed' && 'Fertig'}
+                      </span>
+                      <div className="text-sm font-medium">
+                        {item.quantityProduced} / {item.quantity}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -117,16 +147,18 @@ export default function OrderDetail() {
                   onChange={(e) => updateStatusMutation.mutate(e.target.value)}
                   className="mt-1 block w-full rounded-lg border-gray-300 text-sm"
                 >
+                  <option value="new">Neu</option>
                   <option value="pending">Ausstehend</option>
                   <option value="in_production">In Produktion</option>
-                  <option value="ready">Bereit</option>
+                  <option value="ready">Bereit (Alt)</option>
+                  <option value="finished">Bereit</option>
                   <option value="delivered">Geliefert</option>
                   <option value="cancelled">Storniert</option>
                 </select>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Gesamtbetrag</p>
-                <p className="text-xl font-bold text-gray-900">€{order.totalAmount.toFixed(2)}</p>
+                <p className="text-xl font-bold text-gray-900">€{(order.grossSum ?? order.totalAmount ?? 0).toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Erstellt am</p>
@@ -160,76 +192,3 @@ export default function OrderDetail() {
   )
 }
 
-function ProductionJobItem({ job, orderId }: { job: ProductionJob; orderId: string }) {
-  const queryClient = useQueryClient()
-  
-  const updateMutation = useMutation({
-    mutationFn: (data: { producedQuantity?: number; status?: string }) => 
-      api.patch(`/production/${job.id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['order', orderId] })
-    },
-  })
-
-  const progress = (job.producedQuantity / job.targetQuantity) * 100
-
-  return (
-    <div className="p-4 hover:bg-gray-50">
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <p className="font-medium text-gray-900">{job.productName}</p>
-          <p className="text-sm text-gray-500">Ziel: {job.targetQuantity} Stück</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {job.status === 'queued' && (
-            <button
-              onClick={() => updateMutation.mutate({ status: 'in_progress' })}
-              className="text-sm text-primary-600 hover:text-primary-700 font-medium"
-            >
-              Starten
-            </button>
-          )}
-          {job.status === 'in_progress' && (
-            <button
-              onClick={() => updateMutation.mutate({ status: 'done', producedQuantity: job.targetQuantity })}
-              className="text-sm text-green-600 hover:text-green-700 font-medium"
-            >
-              Abschließen
-            </button>
-          )}
-          <span className={`
-            px-2 py-1 text-xs font-medium rounded-full
-            ${job.status === 'queued' ? 'bg-gray-100 text-gray-800' : ''}
-            ${job.status === 'in_progress' ? 'bg-blue-100 text-blue-800' : ''}
-            ${job.status === 'done' ? 'bg-green-100 text-green-800' : ''}
-            ${job.status === 'issue' ? 'bg-red-100 text-red-800' : ''}
-          `}>
-            {job.status === 'queued' && 'Wartend'}
-            {job.status === 'in_progress' && 'In Arbeit'}
-            {job.status === 'done' && 'Fertig'}
-            {job.status === 'issue' && 'Problem'}
-          </span>
-        </div>
-      </div>
-      <div className="flex items-center gap-4">
-        <div className="flex-1 bg-gray-200 rounded-full h-2">
-          <div 
-            className="bg-primary-600 h-2 rounded-full transition-all"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            value={job.producedQuantity}
-            onChange={(e) => updateMutation.mutate({ producedQuantity: Number(e.target.value) })}
-            className="w-20 text-right text-sm border rounded px-2 py-1"
-            min={0}
-            max={job.targetQuantity}
-          />
-          <span className="text-sm text-gray-500">/ {job.targetQuantity}</span>
-        </div>
-      </div>
-    </div>
-  )
-}

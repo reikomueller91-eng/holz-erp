@@ -23,6 +23,7 @@ import { orderRoutes } from './routes/orders';
 import { offerRoutes } from './routes/offers';
 import { pricingRoutes } from './routes/pricing';
 import { invoiceRoutes } from './routes/invoices';
+import { dashboardRoutes } from './routes/dashboard';
 import { buildSettingsRoutes } from './routes/settings';
 import { HolzError } from '../shared/errors';
 import { logger } from '../shared/utils/logger';
@@ -100,6 +101,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     await offerRoutes(app);
     await pricingRoutes(app);
     await invoiceRoutes(app);
+    await dashboardRoutes(app, {});
     app.register(buildSettingsRoutes(systemConfigRepository));
   }, { prefix: '/api' });
 
