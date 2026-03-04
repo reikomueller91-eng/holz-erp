@@ -1,22 +1,8 @@
-import { createTransport } from 'nodemailer';
+import { createTransport, type Transporter } from 'nodemailer';
+import Imap from 'imap';
+import { simpleParser } from 'mailparser';
 
 // Types
-interface ParsedEmail {
-  id: string;
-  subject: string;
-  from: { name: string; address: string };
-  to: string;
-  date: Date;
-  text: string;
-  html?: string;
-}
-
-interface EmailConfig {
-  imap: { host: string; port: number; user: string; password: string; tls: boolean };
-  smtp: { host: string; port: number; user: string; password: string };
-  filterKeywords: string[];
-}
-
 interface ProductData {
   id: string;
   name: string;
@@ -27,9 +13,15 @@ interface ProductData {
   currentPricePerM2: number;
 }
 
-// SMTP Service only - IMAP would require additional setup
+interface EmailConfig {
+  imap: { host: string; port: number; user: string; password: string; tls: boolean };
+  smtp: { host: string; port: number; user: string; password: string };
+  filterKeywords: string[];
+}
+
+// SMTP Service
 export class SmtpService {
-  private transporter: ReturnType<typeof createTransport>;
+  private transporter: Transporter;
 
   constructor(config: EmailConfig['smtp']) {
     this.transporter = createTransport({
@@ -50,8 +42,133 @@ export class SmtpService {
   }
 }
 
-// Email Worker with manual polling via API endpoint
+// IMAP Service
+export class ImapService {
+  private client: Imap;
+  private config: EmailConfig['imap'];
+
+  constructor(config: EmailConfig['imap']) {
+    this.config = config;
+    this.client = new Imap({
+      user: config.user,
+      password: config.password,
+      host: config.host,
+      port: config.port,
+      tls: config.tls,
+    });
+  }
+
+  connect(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.client.once('ready', () => resolve());
+      this.client.once('error', (err) => reject(err));
+      this.client.connect();
+    });
+  }
+
+  disconnect(): void {
+    this.client.end();
+  }
+
+  async getUnseenEmails(): Promise<Array<{
+    id: string;
+    subject: string;
+    from: { name: string; address: string };
+    to: string;
+    date: Date;
+    text: string;
+    html?: string;
+  }>> {
+    return new Promise((resolve, reject) => {
+      this.client.openBox('INBOX', false, (err, box) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        // Search for unseen emails from last 24 hours
+        const searchCriteria = ['UNSEEN', ['SINCE', new Date(Date.now() - 24 * 60 * 60 * 1000)]];
+        
+        this.client.search(searchCriteria, (err, results) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          if (results.length === 0) {
+            resolve([]);
+            return;
+          }
+
+          const emails: Array<any> = [];
+          let processed = 0;
+
+          results.forEach((msgId) => {
+            const fetch = this.client.fetch(msgId, { bodies: '' });
+            
+            fetch.on('message', (msg) => {
+              let rawEmail = '';
+              
+              msg.on('body', (stream) => {
+                stream.on('data', (chunk) => {
+                  rawEmail += chunk.toString();
+                });
+              });
+
+              msg.once('end', async () => {
+                try {
+                  const parsed = await simpleParser(rawEmail);
+                  const from = parsed.from?.value?.[0];
+                  
+                  emails.push({
+                    id: msgId.toString(),
+                    subject: parsed.subject || '(kein Betreff)',
+                    from: {
+                      name: from?.name || from?.address || 'Unbekannt',
+                      address: from?.address || '',
+                    },
+                    to: parsed.to?.value?.[0]?.address || '',
+                    date: parsed.date || new Date(),
+                    text: parsed.text || '',
+                    html: parsed.html || undefined,
+                  });
+                } catch (e) {
+                  console.error('Error parsing email:', e);
+                }
+
+                processed++;
+                if (processed === results.length) {
+                  resolve(emails);
+                }
+              });
+            });
+
+            fetch.once('error', (err) => {
+              console.error('Fetch error:', err);
+              processed++;
+              if (processed === results.length) {
+                resolve(emails);
+              }
+            });
+          });
+        });
+      });
+    });
+  }
+
+  markAsSeen(uid: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.client.addFlags(uid, ['\\Seen'], (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+}
+
+// Email Worker
 export class EmailWorker {
+  private imap: ImapService | null = null;
   private smtp: SmtpService;
   private config: EmailConfig;
   private isRunning = false;
@@ -60,6 +177,10 @@ export class EmailWorker {
   constructor(config: EmailConfig) {
     this.config = config;
     this.smtp = new SmtpService(config.smtp);
+    
+    if (config.imap.host && config.imap.user && config.imap.password) {
+      this.imap = new ImapService(config.imap);
+    }
   }
 
   async start(
@@ -77,15 +198,82 @@ export class EmailWorker {
 
     console.log('📧 E-Mail Worker gestartet...');
 
+    if (!this.imap) {
+      console.log('⚠️ IMAP nicht konfiguriert - E-Mail Worker läuft im Test-Modus');
+    } else {
+      try {
+        await this.imap.connect();
+        console.log('✅ IMAP verbunden');
+      } catch (err) {
+        console.error('❌ IMAP Verbindungsfehler:', err);
+        this.imap = null;
+      }
+    }
+
     const processLoop = async () => {
       if (!this.isRunning) return;
 
       try {
-        // For now, we'll just log that we're running
-        // Full IMAP integration would need more setup
-        console.log('📥 E-Mail Worker läuft - wartet auf eingehende E-Mails...');
+        console.log('📥 Prüfe auf neue E-Mails...');
+        
+        if (!this.imap) {
+          console.log('⚠️ Kein IMAP - überspringe');
+          if (this.isRunning) setTimeout(processLoop, this.pollInterval);
+          return;
+        }
+
+        const emails = await this.imap.getUnseenEmails();
+        console.log(`📬 ${emails.length} ungelesene E-Mails gefunden`);
+
+        const products = await getProducts();
+
+        for (const email of emails) {
+          const isRelevant = this.isRelevantEmail(email.subject, email.text);
+          console.log(`📨 E-Mail von ${email.from.address}: "${email.subject}" - Relevant: ${isRelevant}`);
+          
+          if (isRelevant) {
+            const ticketNumber = this.generateTicketNumber();
+            console.log(`🎫 Ticket: ${ticketNumber}`);
+
+            // Extract products from email
+            const requestedProducts = this.extractProductRequests(email.text, products);
+            console.log(`📦 ${requestedProducts.length} Produkte gefunden`);
+
+            if (requestedProducts.length > 0) {
+              // Create offer
+              const offer = await createOffer({
+                customerId: '',
+                customerName: email.from.name,
+                customerEmail: email.from.address,
+                items: requestedProducts.map(p => ({
+                  productId: p.product.id,
+                  lengthMm: p.requestedLength,
+                  quantity: p.quantity,
+                })),
+                notes: `E-Mail Anfrage\nBetreff: ${email.subject}\nTicket: ${ticketNumber}`,
+              });
+
+              // Send confirmation
+              await this.smtp.sendEmail(
+                email.from.address,
+                `Re: ${email.subject} [${ticketNumber}]`,
+                `<h1>Anfrage erhalten!</h1>
+                 <p>Sehr geehrte/r ${email.from.name},</p>
+                 <p>wir haben Ihre Anfrage erhalten.</p>
+                 <p><strong>Ticket-Nummer: ${ticketNumber}</strong></p>
+                 <p>Ihre Anfrage wird bearbeitet. Sie erhalten in Kürze ein Angebot.</p>
+                 <p>Mit freundlichen Grüßen,<br/>Ihr HolzERP Team</p>`
+              );
+
+              console.log(`✅ Bestätigung gesendet an ${email.from.address}`);
+            }
+
+            // Mark as seen
+            await this.imap.markAsSeen(email.id);
+          }
+        }
       } catch (error) {
-        console.error('❌ Fehler im E-Mail Worker:', error);
+        console.error('❌ Fehler:', error);
       }
 
       if (this.isRunning) {
@@ -98,39 +286,35 @@ export class EmailWorker {
 
   stop(): void {
     this.isRunning = false;
+    if (this.imap) {
+      this.imap.disconnect();
+    }
     console.log('📧 E-Mail Worker gestoppt');
   }
 
-  // Helper to check if email is relevant
-  isRelevantEmail(subject: string, text: string): boolean {
+  private isRelevantEmail(subject: string, text: string): boolean {
     const content = `${subject} ${text}`.toLowerCase();
     return this.config.filterKeywords.some(keyword => content.includes(keyword.toLowerCase()));
   }
 
-  // Generate ticket number
-  generateTicketNumber(): string {
-    const year = new Date().getFullYear();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `ANGEBOT-${year}-${random}`;
-  }
-
-  // Extract product requests from email text
-  extractProductRequests(text: string, products: ProductData[]): Array<{product: ProductData; requestedLength: number; quantity: number}> {
+  private extractProductRequests(text: string, products: ProductData[]): Array<{product: ProductData; requestedLength: number; quantity: number}> {
     const textLower = text.toLowerCase();
     const results: Array<{product: ProductData; requestedLength: number; quantity: number}> = [];
 
     for (const product of products) {
       if (textLower.includes(product.name.toLowerCase())) {
-        const quantity = this.extractNumber(text) || 1;
-        const lengthMm = this.extractLength(text) || 1000;
-        results.push({ product, requestedLength: lengthMm, quantity });
+        results.push({
+          product,
+          requestedLength: this.extractLength(text) || 1000,
+          quantity: this.extractNumber(text) || 1,
+        });
       }
     }
     return results;
   }
 
   private extractNumber(text: string): number | null {
-    const match = text.match(/(\d+)\s*(stück|pieces|q|quantity|x)/i);
+    const match = text.match(/(\d+)\s*(stück|pieces|q|quantity|x|zahl)/i);
     return match ? parseInt(match[1], 10) : null;
   }
 
@@ -142,29 +326,34 @@ export class EmailWorker {
     return null;
   }
 
-  async sendConfirmation(to: string, subject: string, ticketNumber: string): Promise<void> {
-    await this.smtp.sendEmail(
-      to,
-      `Re: ${subject} [${ticketNumber}]`,
-      `<h1>Anfrage erhalten!</h1>
-       <p>Sehr geehrte/r Kunde/in,</p>
-       <p>wir haben Ihre Anfrage erhalten und bearbeiten diese.</p>
-       <p><strong>Ticket-Nummer: ${ticketNumber}</strong></p>
-       <p>Sie erhalten in Kürze ein Angebot von uns.</p>
-       <p>Mit freundlichen Grüßen,<br/>Ihr HolzERP Team</p>`
-    );
+  private generateTicketNumber(): string {
+    const year = new Date().getFullYear();
+    const month = (new Date().getMonth() + 1).toString().padStart(2, '0');
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `ANGEBOT-${year}${month}-${random}`;
   }
 }
 
 export function createEmailWorker(env: Record<string, string>): EmailWorker | null {
   const config: EmailConfig = {
-    imap: { host: env.IMAP_HOST || '', port: parseInt(env.IMAP_PORT || '993', 10), user: env.IMAP_USER || '', password: env.IMAP_PASSWORD || '', tls: env.IMAP_TLS !== 'false' },
-    smtp: { host: env.SMTP_HOST || '', port: parseInt(env.SMTP_PORT || '587', 10), user: env.SMTP_USER || '', password: env.SMTP_PASSWORD || '' },
+    imap: {
+      host: env.IMAP_HOST || '',
+      port: parseInt(env.IMAP_PORT || '993', 10),
+      user: env.IMAP_USER || '',
+      password: env.IMAP_PASSWORD || '',
+      tls: env.IMAP_TLS !== 'false',
+    },
+    smtp: {
+      host: env.SMTP_HOST || '',
+      port: parseInt(env.SMTP_PORT || '587', 10),
+      user: env.SMTP_USER || '',
+      password: env.SMTP_PASSWORD || '',
+    },
     filterKeywords: (env.EMAIL_FILTER_KEYWORDS || 'angebot,anfrage,holz,produkt').split(','),
   };
 
-  if (!config.smtp.host) {
-    console.log('📧 E-Mail Worker nicht konfiguriert (fehlende SMTP Settings)');
+  if (!config.smtp.host || !config.smtp.user || !config.smtp.password) {
+    console.log('📧 E-Mail Worker nicht konfiguriert');
     return null;
   }
 
