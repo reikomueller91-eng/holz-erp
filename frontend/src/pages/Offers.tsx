@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Eye, Download, WifiOff, AlertCircle } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import api from '../lib/api'
 import { formatDate, formatCurrency } from '../lib/utils'
 import { PageHeader, SearchInput, LoadingState, EmptyState, StatusBadge, Modal } from '../components/ui'
@@ -23,6 +23,7 @@ function getErrorMessage(error: unknown): string {
 export default function Offers() {
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
+  const navigate = useNavigate()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['offers'],
@@ -36,7 +37,7 @@ export default function Offers() {
 
   const offers = Array.isArray(data) ? data : []
 
-  const filteredOffers = offers.filter(o => 
+  const filteredOffers = offers.filter(o =>
     o?.customerName?.toLowerCase().includes(search.toLowerCase())
   )
 
@@ -57,7 +58,7 @@ export default function Offers() {
 
   return (
     <div className="space-y-6">
-      <PageHeader 
+      <PageHeader
         title="Angebote"
         action={
           <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
@@ -84,17 +85,21 @@ export default function Offers() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filteredOffers.map((offer) => (
-                <tr key={offer.id} className="hover:bg-gray-50">
+                <tr
+                  key={offer.id}
+                  className="hover:bg-gray-50 cursor-pointer"
+                  onClick={() => navigate(`/offers/${offer.id}`)}
+                >
                   <td className="px-6 py-4 font-medium">{offer.customerName || 'Unbekannt'}</td>
                   <td className="px-6 py-4 text-gray-600">{formatDate(offer.createdAt)}</td>
                   <td className="px-6 py-4"><StatusBadge type="offer" status={offer.status} /></td>
                   <td className="px-6 py-4 text-right font-medium">{formatCurrency(offer.totalAmount)}</td>
-                  <td className="px-6 py-4 text-right">
+                  <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                     <Link to={`/offers/${offer.id}`} className="p-2 text-gray-400 hover:text-primary-600 inline-block">
                       <Eye className="w-4 h-4" />
                     </Link>
                     {offer.pdfPath && (
-                      <a href={`/api/offers/${offer.id}/pdf`} className="p-2 text-gray-400 hover:text-primary-600 inline-block">
+                      <a href={`/api/offers/${offer.id}/pdf`} target="_blank" rel="noopener noreferrer" className="p-2 text-gray-400 hover:text-primary-600 inline-block" title="PDF ansehen">
                         <Download className="w-4 h-4" />
                       </a>
                     )}
@@ -115,7 +120,7 @@ function OfferModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient()
   const [selectedCustomer, setSelectedCustomer] = useState('')
   const [validUntil, setValidUntil] = useState('')
-  const [lineItems, setLineItems] = useState<Array<{productId: string; lengthMm: number; quantity: number; unitPrice: number}>>([])
+  const [lineItems, setLineItems] = useState<Array<{ productId: string; lengthMm: number; quantity: number; unitPrice: number }>>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const { data: customers } = useQuery({

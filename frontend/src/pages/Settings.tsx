@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Lock, Shield, Database, Download, Upload } from 'lucide-react'
 import api from '../lib/api'
@@ -8,11 +8,25 @@ export default function Settings() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [message, setMessage] = useState('')
+  const [sellerAddress, setSellerAddress] = useState('')
+  const [addressMessage, setAddressMessage] = useState('')
 
   const { data: status } = useQuery({
     queryKey: ['auth-status'],
     queryFn: async () => {
       const { data } = await api.get('/auth/status')
+      return data
+    },
+  })
+
+  // Fetch address settings
+  useQuery({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const { data } = await api.get('/settings')
+      if (data && data.sellerAddress) {
+        setSellerAddress(data.sellerAddress)
+      }
       return data
     },
   })
@@ -49,6 +63,25 @@ export default function Settings() {
     changePasswordMutation.mutate()
   }
 
+  const updateSettingsMutation = useMutation({
+    mutationFn: async () => {
+      await api.put('/settings', { sellerAddress })
+    },
+    onSuccess: () => {
+      setAddressMessage('Absenderadresse erfolgreich gespeichert')
+      setTimeout(() => setAddressMessage(''), 3000)
+    },
+    onError: (error: any) => {
+      setAddressMessage(error.response?.data?.message || 'Fehler beim Speichern der Adresse')
+    },
+  })
+
+  const handleAddressChange = (e: React.FormEvent) => {
+    e.preventDefault()
+    setAddressMessage('')
+    updateSettingsMutation.mutate()
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Einstellungen</h1>
@@ -70,17 +103,54 @@ export default function Settings() {
         </p>
       </div>
 
+      {/* Firmendaten / Absenderadresse */}
+      <div className="card p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <Database className="w-6 h-6 text-blue-600" />
+          <h2 className="text-lg font-semibold">Firmendaten (Absenderadresse)</h2>
+        </div>
+
+        {addressMessage && (
+          <div className={`p-3 mb-4 rounded-lg text-sm ${addressMessage.includes('erfolgreich') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            }`}>
+            {addressMessage}
+          </div>
+        )}
+
+        <form onSubmit={handleAddressChange} className="space-y-4 max-w-md">
+          <p className="text-sm text-gray-500 mb-2">Diese Adresse wird zentral für alle neu erstellten Angebote und Rechnungen verwendet.</p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Absenderadresse
+            </label>
+            <textarea
+              value={sellerAddress}
+              onChange={(e) => setSellerAddress(e.target.value)}
+              className="input min-h-[120px]"
+              placeholder="HolzERP Musterfirma&#10;Musterstraße 1&#10;12345 Musterstadt"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={updateSettingsMutation.isPending}
+            className="btn-primary"
+          >
+            {updateSettingsMutation.isPending ? 'Wird gespeichert...' : 'Adresse speichern'}
+          </button>
+        </form>
+      </div>
+
       {/* Change Password */}
       <div className="card p-6">
         <div className="flex items-center gap-3 mb-4">
           <Lock className="w-6 h-6 text-primary-600" />
           <h2 className="text-lg font-semibold">Passwort ändern</h2>
         </div>
-        
+
         {message && (
-          <div className={`p-3 mb-4 rounded-lg text-sm ${
-            message.includes('erfolgreich') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-          }`}>
+          <div className={`p-3 mb-4 rounded-lg text-sm ${message.includes('erfolgreich') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            }`}>
             {message}
           </div>
         )}

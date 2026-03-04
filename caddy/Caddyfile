@@ -1,57 +1,37 @@
-# HolzERP Caddy Configuration
-# Auto-HTTPS with local development support
-
 {
     auto_https off
 }
 
 :80 {
-    # Log requests
+
     log {
         output stdout
         format json
     }
 
-    # Headers
     header {
         X-Content-Type-Options nosniff
         X-Frame-Options DENY
         X-XSS-Protection "1; mode=block"
     }
 
-    # Health check
     respond /health 200 {
         body "healthy"
     }
 
-    # API routes go to backend
+    # API → Backend
     handle /api/* {
-        reverse_proxy backend:3000 {
-            header_up Host {host}
-            header_up X-Real-IP {remote}
-            header_up X-Forwarded-For {remote}
-            header_up X-Forwarded-Proto {scheme}
-        }
+        reverse_proxy backend:3000
     }
 
-    # Production UI (Phase 5 keypad interface)
+    # Production UI
     handle /production {
-        reverse_proxy frontend:80 {
-            header_up Host {host}
-            header_up X-Real-IP {remote}
-            header_up X-Forwarded-For {remote}
-            header_up X-Forwarded-Proto {scheme}
-            uri /production.html
-        }
+        rewrite * /production.html
+        reverse_proxy frontend:80
     }
 
-    # Everything else goes to frontend (React SPA)
+    # React SPA
     handle {
-        reverse_proxy frontend:80 {
-            header_up Host {host}
-            header_up X-Real-IP {remote}
-            header_up X-Forwarded-For {remote}
-            header_up X-Forwarded-Proto {scheme}
-        }
+        reverse_proxy frontend:80
     }
 }

@@ -3,5 +3,7 @@ export const logger = {
   error: console.error,
   warn: console.warn,
   debug: console.log,
+  fatal: console.error,
+  trace: console.trace,
   child: () => logger
 } as any;

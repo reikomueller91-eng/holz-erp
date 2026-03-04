@@ -20,7 +20,7 @@ export default function Invoices() {
     },
   })
 
-  const filteredInvoices = invoices?.filter(i => 
+  const filteredInvoices = invoices?.filter(i =>
     i.customerName?.toLowerCase().includes(search.toLowerCase())
   )
 
@@ -39,7 +39,7 @@ export default function Invoices() {
     <div className="space-y-6">
       <PageHeader title="Rechnungen" />
 
-      <SearchInput 
+      <SearchInput
         value={search}
         onChange={setSearch}
         placeholder="Rechnungen suchen..."
@@ -49,7 +49,7 @@ export default function Invoices() {
         {isLoading ? (
           <LoadingState />
         ) : filteredInvoices?.length === 0 ? (
-          <EmptyState 
+          <EmptyState
             message="Noch keine Rechnungen vorhanden"
             searchActive={!!search}
           />
@@ -95,17 +95,11 @@ export default function Invoices() {
                           <CheckCircle className="w-4 h-4" />
                         </button>
                       )}
-                      <Link
-                        to={`/invoices/${invoice.id}`}
-                        className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg"
-                      >
+                      <Link to={`/invoices/${invoice.id}`} className="p-2 text-gray-400 hover:text-primary-600 inline-block" title="Ansehen">
                         <Eye className="w-4 h-4" />
                       </Link>
                       {invoice.pdfPath && (
-                        <a
-                          href={`/api/invoices/${invoice.id}/pdf`}
-                          className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg"
-                        >
+                        <a href={`/api/invoices/${invoice.id}/pdf`} target="_blank" rel="noopener noreferrer" className="p-2 text-gray-400 hover:text-primary-600 inline-block" title="PDF ansehen">
                           <Download className="w-4 h-4" />
                         </a>
                       )}

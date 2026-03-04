@@ -9,6 +9,8 @@ import { transitionInvoice, finalizeInvoice, createInvoiceVersion, calcInvoiceTo
 import type { InvoiceStatus, UUID } from '../../shared/types';
 import { requireUnlocked } from '../middleware/auth';
 import { generateId } from '../../shared/utils/id';
+import fs from 'fs';
+import path from 'path';
 
 const InvoiceItemSchema = z.object({
   orderItemId: z.string().optional(),
@@ -45,15 +47,16 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   const invoiceRepo = fastify.invoiceRepository as IInvoiceRepository;
   const orderRepo = fastify.orderRepository as IOrderRepository;
   const customerRepo = fastify.customerRepository as ICustomerRepository;
+  const configRepo = fastify.systemConfigRepository as any;
   const pdfService = new PDFService(customerRepo);
 
   // GET /api/invoices - List all invoices
-  fastify.get(
+  fastify.get<{ Querystring: { status?: string; customerId?: string; limit?: string; offset?: string } }>(
     '/invoices',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Querystring: { status?: string; customerId?: string; limit?: string; offset?: string } }>) => {
+    async (request) => {
       const { status, customerId, limit, offset } = request.query;
-      
+
       const invoices = await invoiceRepo.findAll({
         status: status as InvoiceStatus | undefined,
         customerId: customerId as UUID | undefined,
@@ -66,10 +69,10 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   );
 
   // GET /api/invoices/:id - Get single invoice
-  fastify.get(
+  fastify.get<{ Params: { id: string } }>(
     '/invoices/:id',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    async (request) => {
       const invoice = await invoiceRepo.findById(request.params.id as UUID);
       if (!invoice) {
         return { error: 'Invoice not found' };
@@ -77,7 +80,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
       const customer = await customerRepo.findById(invoice.customerId);
       const versions = await invoiceRepo.getVersionHistory(invoice.id);
-      
+
       return {
         invoice,
         customer,
@@ -87,28 +90,33 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   );
 
   // GET /api/invoices/:id/pdf - Get invoice PDF
-  fastify.get(
+  fastify.get<{ Params: { id: string } }>(
     '/invoices/:id/pdf',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    async (request, reply) => {
       const invoice = await invoiceRepo.findById(request.params.id as UUID);
       if (!invoice) {
         return reply.status(404).send({ error: 'Invoice not found' });
       }
 
-      if (!invoice.pdfPath) {
-        return reply.status(404).send({ error: 'PDF not generated yet' });
+      // We explicitly check the property `pdfPath`, which we know we set during generation.
+      const anyInvoice = invoice as any;
+      if (!anyInvoice.pdfPath || !fs.existsSync(anyInvoice.pdfPath)) {
+        return reply.status(404).send({ error: 'PDF not generated yet or file missing' });
       }
 
-      return { pdfPath: invoice.pdfPath };
+      const stream = fs.createReadStream(anyInvoice.pdfPath);
+      reply.header('Content-Type', 'application/pdf');
+      reply.header('Content-Disposition', `inline; filename=${path.basename(anyInvoice.pdfPath)}`);
+      return reply.send(stream);
     }
   );
 
   // POST /api/invoices - Create invoice
-  fastify.post(
+  fastify.post<{ Body: z.infer<typeof CreateInvoiceSchema> }>(
     '/invoices',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Body: z.infer<typeof CreateInvoiceSchema> }>) => {
+    async (request) => {
       const data = CreateInvoiceSchema.parse(request.body);
 
       const order = await orderRepo.findById(data.orderId as UUID);
@@ -143,8 +151,8 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
         status: 'draft',
         date: new Date().toISOString().split('T')[0],
         dueDate: data.dueDate,
-        sellerAddress: data.sellerAddress,
-        customerAddress: data.customerAddress,
+        sellerAddress: data.sellerAddress || await configRepo.getValue('seller_address') || 'HolzERP Musterfirma\nMusterstraße 1\n12345 Musterstadt',
+        customerAddress: data.customerAddress || 'Keine Adresse',
         lineItems,
         ...totals,
         vatPercent: data.vatPercent,
@@ -162,12 +170,12 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   );
 
   // PUT /api/invoices/:id - Update invoice
-  fastify.put(
+  fastify.put<{ Params: { id: string }; Body: z.infer<typeof UpdateInvoiceSchema> }>(
     '/invoices/:id',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof UpdateInvoiceSchema> }>) => {
+    async (request) => {
       const data = UpdateInvoiceSchema.parse(request.body);
-      
+
       let invoice = await invoiceRepo.findById(request.params.id as UUID);
       if (!invoice) {
         return { error: 'Invoice not found' };
@@ -203,7 +211,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
         const vatPercent = data.vatPercent ?? invoice.vatPercent;
         const totals = calcInvoiceTotals(lineItems, vatPercent);
-        
+
         updates.lineItems = lineItems;
         updates.vatPercent = vatPercent;
         Object.assign(updates, totals);
@@ -221,12 +229,12 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   );
 
   // POST /api/invoices/:id/status - Change invoice status
-  fastify.post(
+  fastify.post<{ Params: { id: string }; Body: z.infer<typeof ChangeStatusSchema> }>(
     '/invoices/:id/status',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof ChangeStatusSchema> }>) => {
+    async (request) => {
       const data = ChangeStatusSchema.parse(request.body);
-      
+
       let invoice = await invoiceRepo.findById(request.params.id as UUID);
       if (!invoice) {
         return { error: 'Invoice not found' };
@@ -240,10 +248,10 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   );
 
   // POST /api/invoices/:id/finalize - Finalize invoice
-  fastify.post(
+  fastify.post<{ Params: { id: string } }>(
     '/invoices/:id/finalize',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    async (request) => {
       let invoice = await invoiceRepo.findById(request.params.id as UUID);
       if (!invoice) {
         return { error: 'Invoice not found' };
@@ -261,10 +269,10 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   );
 
   // POST /api/invoices/:id/generate-pdf - Generate PDF
-  fastify.post(
+  fastify.post<{ Params: { id: string } }>(
     '/invoices/:id/generate-pdf',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    async (request) => {
       const invoice = await invoiceRepo.findById(request.params.id as UUID);
       if (!invoice) {
         return { error: 'Invoice not found' };
@@ -272,18 +280,18 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
       try {
         const { filePath, fileName } = await pdfService.generateInvoicePDF(invoice);
-        
+
         // Update invoice with PDF path
         const updatedInvoice = { ...invoice, pdfPath: filePath };
         await invoiceRepo.update(updatedInvoice);
 
-        return { 
+        return {
           message: 'PDF generated successfully',
           fileName,
           filePath,
         };
       } catch (error) {
-        return { 
+        return {
           error: 'Failed to generate PDF',
           details: String(error),
         };
@@ -292,14 +300,14 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   );
 
   // GET /api/invoices/:id/versions/:version - Get specific version
-  fastify.get(
+  fastify.get<{ Params: { id: string; version: string } }>(
     '/invoices/:id/versions/:version',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string; version: string } }>) => {
+    async (request) => {
       const versions = await invoiceRepo.getVersionHistory(request.params.id as UUID);
       const versionNum = parseInt(request.params.version);
       const version = versions.find(v => v.version === versionNum);
-      
+
       if (!version) {
         return { error: 'Version not found' };
       }

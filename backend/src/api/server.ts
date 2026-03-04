@@ -13,6 +13,7 @@ import { ProductRepository } from '../infrastructure/repositories/ProductReposit
 import { OrderRepository } from '../infrastructure/repositories/OrderRepository';
 import { OfferRepository } from '../infrastructure/repositories/OfferRepository';
 import { InvoiceRepository } from '../infrastructure/repositories/InvoiceRepository';
+import { SystemConfigRepository } from '../infrastructure/repositories/SystemConfigRepository';
 import { PricingService } from '../application/services/PricingService';
 import { registerHealthRoutes } from './routes/health.routes';
 import { registerAuthRoutes } from './routes/auth.routes';
@@ -22,6 +23,7 @@ import { orderRoutes } from './routes/orders';
 import { offerRoutes } from './routes/offers';
 import { pricingRoutes } from './routes/pricing';
 import { invoiceRoutes } from './routes/invoices';
+import { buildSettingsRoutes } from './routes/settings';
 import { HolzError } from '../shared/errors';
 import { logger } from '../shared/utils/logger';
 import { ZodError } from 'zod';
@@ -48,6 +50,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const orderRepository = new OrderRepository(db, cryptoService);
   const offerRepository = new OfferRepository(db, cryptoService);
   const invoiceRepository = new InvoiceRepository(db, cryptoService);
+  const systemConfigRepository = new SystemConfigRepository(db);
 
   // ─── Application Services ──────────────────────────────────────
   const customerService = new CustomerService(customerRepository);
@@ -85,6 +88,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   server.decorate('orderRepository', orderRepository);
   server.decorate('offerRepository', offerRepository);
   server.decorate('invoiceRepository', invoiceRepository);
+  server.decorate('systemConfigRepository', systemConfigRepository);
 
   // ─── Routes ───────────────────────────────────────────────────
   server.register(async (app) => {
@@ -96,6 +100,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     await offerRoutes(app);
     await pricingRoutes(app);
     await invoiceRoutes(app);
+    app.register(buildSettingsRoutes(systemConfigRepository));
   }, { prefix: '/api' });
 
   // ─── Error Handler ────────────────────────────────────────────

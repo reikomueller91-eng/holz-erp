@@ -92,10 +92,12 @@ export default function InvoiceDetail() {
           {invoice.pdfPath && (
             <a
               href={`/api/invoices/${invoice.id}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="btn-secondary flex items-center gap-2"
             >
               <Download className="w-4 h-4" />
-              PDF
+              PDF ansehen
             </a>
           )}
         </div>

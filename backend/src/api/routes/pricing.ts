@@ -28,10 +28,10 @@ export async function pricingRoutes(fastify: FastifyInstance) {
   const pricingService = fastify.pricingService as PricingService;
 
   // POST /api/pricing/calculate
-  fastify.post(
+  fastify.post<{ Body: z.infer<typeof CalculatePriceSchema> }>(
     '/pricing/calculate',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Body: z.infer<typeof CalculatePriceSchema> }>) => {
+    async (request) => {
       const data = CalculatePriceSchema.parse(request.body);
       
       const result = pricingService.calculatePrice(
@@ -48,10 +48,10 @@ export async function pricingRoutes(fastify: FastifyInstance) {
   );
 
   // POST /api/pricing/history
-  fastify.post(
+  fastify.post<{ Body: z.infer<typeof PriceHistorySchema> }>(
     '/pricing/history',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Body: z.infer<typeof PriceHistorySchema> }>) => {
+    async (request) => {
       const data = PriceHistorySchema.parse(request.body);
       
       const history = await pricingService.getPriceHistory(
@@ -64,10 +64,10 @@ export async function pricingRoutes(fastify: FastifyInstance) {
   );
 
   // POST /api/pricing/suggest
-  fastify.post(
+  fastify.post<{ Body: z.infer<typeof SuggestPriceSchema> }>(
     '/pricing/suggest',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Body: z.infer<typeof SuggestPriceSchema> }>) => {
+    async (request) => {
       const data = SuggestPriceSchema.parse(request.body);
       
       const suggestion = await pricingService.suggestPrice(

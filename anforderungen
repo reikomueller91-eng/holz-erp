@@ -1,0 +1,13 @@
+Beim klick auf ein angebot in der angebotsliste soll sich dies öffnen. das selbe auch bei produkten. bei kunden ist dies bereits implemeniter.
+
+Angebote müssen veränderbar sein. in der art, dass sich auch artikel sowie deren menge sich ändern können. auch preise können sich eventuell ändern. das pdf muss dann neu erzeugt werden können.
+
+
+
+Das template muss über das frontend veränderbar sein. hierzu muss ein templatesystem verwendet werden.
+ 
+Produkte müssen nach m² abrechenbar sein, so wie es jetzt ist als auch nach m³. hierfür muss es einen umschalter von m² nach m³ geben. die m2 werte werden direkt eingegeben. die m³ werte wird die grundfläche in mm multiplizert und durch einen variablen teiler dividiert. dies bestimmt den preis pro laufenden meter. die berechneten werde sind hier bruttobeträge.
+
+die mehrwertsteuer muss konfigurierbar sein. 
+
+du als agent sollst auf eine eingehende email, die ein angebot möchte, die benötigten daten aus der db laden. die entsprechenden produkte heraussuchen und ein angebot erstellen. dieses angebot soll zuerst als pdf an mich gesendet werden. hierzu soll anhand der email automatisch der absender ermittelt werden und dieer soll dann entsprechend in der pdf eingetragen werden. die email muss dann im frontend zum jeweiligen angebot verlinkt werden. eventuell indem automatisch an die email eine ticketnummer angehängt wird. somit sollte die email verlinkt und dort angezeigt werden. eventuell ist es dann auch sinnvoll direkt emails aus dem program zu versenden. diese email soll das angebot direkt als anhang erhalten. die ticketnummer sollte hier angehängt bleiben, damit antworten sich direkt drauf beziehen.

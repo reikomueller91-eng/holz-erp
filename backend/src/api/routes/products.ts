@@ -48,10 +48,10 @@ export async function productRoutes(fastify: FastifyInstance) {
   const productService = fastify.productService as ProductService;
 
   // GET /api/products - return flat array for frontend
-  fastify.get(
+  fastify.get<{ Querystring: z.infer<typeof ListQuerySchema> }>(
     '/products',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Querystring: z.infer<typeof ListQuerySchema> }>) => {
+    async (request) => {
       const query = ListQuerySchema.parse(request.query);
       const products = await productService.list(query);
       
@@ -75,10 +75,10 @@ export async function productRoutes(fastify: FastifyInstance) {
   );
 
   // GET /api/products/:id
-  fastify.get(
+  fastify.get<{ Params: { id: string } }>(
     '/products/:id',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    async (request) => {
       const product = await productService.getById(request.params.id as UUID);
       const priceHistory = await productService.getPriceHistory(product.id);
       const currentPrice = priceHistory[0];
@@ -93,10 +93,10 @@ export async function productRoutes(fastify: FastifyInstance) {
   );
 
   // POST /api/products
-  fastify.post(
+  fastify.post<{ Body: z.infer<typeof CreateProductBody> }>(
     '/products',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Body: z.infer<typeof CreateProductBody> }>) => {
+    async (request) => {
       const body = CreateProductBody.parse(request.body);
       const product = await productService.create(body);
 
@@ -124,10 +124,10 @@ export async function productRoutes(fastify: FastifyInstance) {
   );
 
   // PUT /api/products/:id
-  fastify.put(
+  fastify.put<{ Params: { id: string }; Body: z.infer<typeof UpdateProductBody> }>(
     '/products/:id',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof UpdateProductBody> }>) => {
+    async (request) => {
       const body = UpdateProductBody.parse(request.body);
       
       const updates: Record<string, unknown> = {};
@@ -170,30 +170,30 @@ export async function productRoutes(fastify: FastifyInstance) {
   );
 
   // DELETE /api/products/:id
-  fastify.delete(
+  fastify.delete<{ Params: { id: string } }>(
     '/products/:id',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    async (request) => {
       await productService.delete(request.params.id as UUID);
       return { success: true };
     }
   );
 
   // GET /api/products/:id/price-history
-  fastify.get(
+  fastify.get<{ Params: { id: string } }>(
     '/products/:id/price-history',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    async (request) => {
       const history = await productService.getPriceHistory(request.params.id as UUID);
       return history;
     }
   );
 
   // POST /api/products/:id/price
-  fastify.post(
+  fastify.post<{ Params: { id: string }; Body: z.infer<typeof SetPriceBody> }>(
     '/products/:id/price',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof SetPriceBody> }>) => {
+    async (request) => {
       const body = SetPriceBody.parse(request.body);
       
       const entry = await productService.addPrice({

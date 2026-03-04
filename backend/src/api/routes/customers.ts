@@ -75,21 +75,31 @@ function buildContactInfo(body: {
 }): CustomerContactInfo | undefined {
   const hasFlat = body.email || body.phone || body.address;
   const hasNested = body.contactInfo;
-  
+
   if (!hasFlat && !hasNested) return undefined;
-  
+
   // Prefer nested, merge flat
   const contactInfo: CustomerContactInfo = {
     email: body.contactInfo?.email || body.email || undefined,
     phone: body.contactInfo?.phone || body.phone || undefined,
     address: body.contactInfo?.address || (body.address ? { street: body.address } : undefined),
   };
-  
+
   // Clean up empty strings
   if (contactInfo.email === '') contactInfo.email = undefined;
   if (contactInfo.phone === '') contactInfo.phone = undefined;
-  
+
   return contactInfo;
+}
+
+// Helper: format customer for frontend (inject flat fields)
+function formatCustomer(customer: any) {
+  return {
+    ...customer,
+    email: customer.contactInfo?.email,
+    phone: customer.contactInfo?.phone,
+    address: customer.contactInfo?.address?.street,
+  };
 }
 
 /**
@@ -106,7 +116,7 @@ export function registerCustomerRoutes(
     requireUnlocked(server);
     const query = ListQuerySchema.parse(request.query);
     const result = customerService.list(query);
-    return reply.send(result.data); // Return just the array for simplicity
+    return reply.send(result.data.map(formatCustomer)); // Return mapped array
   });
 
   // GET /api/customers/:id
@@ -115,7 +125,7 @@ export function registerCustomerRoutes(
     async (request, reply) => {
       requireUnlocked(server);
       const customer = customerService.getById(request.params.id as UUID);
-      return reply.send(customer);
+      return reply.send(formatCustomer(customer));
     },
   );
 
@@ -123,9 +133,9 @@ export function registerCustomerRoutes(
   server.post('/customers', async (request, reply) => {
     requireUnlocked(server);
     const body = CreateCustomerBody.parse(request.body);
-    
+
     const contactInfo = buildContactInfo(body);
-    
+
     const input: CreateCustomerInput = {
       name: body.name,
       ...(contactInfo ? { contactInfo } : {}),
@@ -133,9 +143,9 @@ export function registerCustomerRoutes(
       ...(body.source !== undefined ? { source: body.source } : {}),
       ...(body.kleinanzeigenId !== undefined ? { kleinanzeigenId: body.kleinanzeigenId } : {}),
     };
-    
+
     const customer = customerService.create(input);
-    return reply.status(201).send(customer);
+    return reply.status(201).send(formatCustomer(customer));
   });
 
   // PUT /api/customers/:id
@@ -144,9 +154,9 @@ export function registerCustomerRoutes(
     async (request, reply) => {
       requireUnlocked(server);
       const body = UpdateCustomerBody.parse(request.body);
-      
+
       const contactInfo = buildContactInfo(body);
-      
+
       const input: UpdateCustomerInput = {
         ...(body.name !== undefined ? { name: body.name } : {}),
         ...(contactInfo ? { contactInfo } : {}),
@@ -155,9 +165,9 @@ export function registerCustomerRoutes(
         ...(body.kleinanzeigenId !== undefined ? { kleinanzeigenId: body.kleinanzeigenId } : {}),
         ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
       };
-      
+
       const customer = customerService.update(request.params.id as UUID, input);
-      return reply.send(customer);
+      return reply.send(formatCustomer(customer));
     },
   );
 

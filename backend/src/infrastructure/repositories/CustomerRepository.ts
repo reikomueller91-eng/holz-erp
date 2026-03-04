@@ -21,7 +21,7 @@ export class CustomerRepository implements ICustomerRepository {
   constructor(
     private readonly db: IDatabase,
     private readonly crypto: ICryptoService,
-  ) {}
+  ) { }
 
   // ─── Read ──────────────────────────────────────────────────────
 
@@ -84,9 +84,7 @@ export class CustomerRepository implements ICustomerRepository {
         : {}),
     };
 
-    const encryptedData = this.crypto.serializeField(
-      this.crypto.encryptJson(payload),
-    );
+    const encryptedData = this.crypto.serializeField(payload);
 
     this.db.run(
       `INSERT INTO customers (id, encrypted_data, is_active, created_at, updated_at)
@@ -128,9 +126,7 @@ export class CustomerRepository implements ICustomerRepository {
         : {}),
     };
 
-    const encryptedData = this.crypto.serializeField(
-      this.crypto.encryptJson(payload),
-    );
+    const encryptedData = this.crypto.serializeField(payload);
 
     this.db.run(
       `UPDATE customers
@@ -155,8 +151,12 @@ export class CustomerRepository implements ICustomerRepository {
   // ─── Private helpers ───────────────────────────────────────────
 
   private rowToCustomer(row: CustomerRow): Customer {
-    const encryptedField = this.crypto.parseField(row.encrypted_data);
-    const payload = this.crypto.decryptJson<CustomerEncryptedPayload>(encryptedField);
+    let payload = this.crypto.deserializeField<any>(row.encrypted_data);
+
+    // Fallback migration for existing customers that were double-encrypted
+    if (!payload.name && payload.iv && payload.tag && payload.data) {
+      payload = this.crypto.decryptJson<any>(payload);
+    }
 
     return {
       id: row.id,

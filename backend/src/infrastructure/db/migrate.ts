@@ -168,6 +168,12 @@ const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS invoices;
     `,
   },
+  {
+    name: '005_offer_pdf_path',
+    up: `
+      ALTER TABLE offers ADD COLUMN pdf_path TEXT;
+    `,
+  },
 ];
 
 export async function runMigrations(db: IDatabase): Promise<void> {

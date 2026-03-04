@@ -30,6 +30,7 @@ interface OfferRow {
   updated_at: string;
   created_by?: string;
   updated_by?: string;
+  pdf_path?: string;
 }
 
 interface OfferEncryptedData {
@@ -117,8 +118,8 @@ export class OfferRepository implements IOfferRepository {
       `INSERT INTO offers (
         id, offer_number, version, status, date, valid_until,
         inquiry_source, inquiry_contact, customer_id, encrypted_data,
-        created_at, updated_at, created_by, updated_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        created_at, updated_at, created_by, updated_by, pdf_path
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         offer.id,
         offer.offerNumber,
@@ -134,6 +135,7 @@ export class OfferRepository implements IOfferRepository {
         offer.updatedAt,
         offer.createdBy ?? null,
         offer.updatedBy ?? null,
+        offer.pdfPath ?? null,
       ]
     );
   }
@@ -157,7 +159,8 @@ export class OfferRepository implements IOfferRepository {
         valid_until = ?,
         encrypted_data = ?,
         updated_at = ?,
-        updated_by = ?
+        updated_by = ?,
+        pdf_path = ?
       WHERE id = ?`,
       [
         offer.version,
@@ -166,6 +169,7 @@ export class OfferRepository implements IOfferRepository {
         encryptedData,
         offer.updatedAt,
         offer.updatedBy ?? null,
+        offer.pdfPath ?? null,
         offer.id,
       ]
     );
@@ -230,6 +234,7 @@ export class OfferRepository implements IOfferRepository {
       updatedAt: row.updated_at,
       createdBy: row.created_by,
       updatedBy: row.updated_by,
+      pdfPath: row.pdf_path,
     };
   }
 

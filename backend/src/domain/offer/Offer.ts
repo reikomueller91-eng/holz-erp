@@ -39,7 +39,10 @@ export interface Offer {
   validUntil?: ISODate;
   inquirySource: string;
   inquiryContact?: string;
-  
+
+  // PDF
+  pdfPath?: string;
+
   // Business data
   sellerAddress: string;
   customerAddress: string;
@@ -49,7 +52,7 @@ export interface Offer {
   vatAmount: number;
   grossSum: number;
   notes?: string;
-  
+
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
   createdBy?: string;
@@ -104,6 +107,6 @@ export function calcOfferTotals(items: OfferItem[], vatPercent: number): {
   const netSum = items.reduce((sum, item) => sum + item.netTotal, 0);
   const vatAmount = Math.round(netSum * vatPercent) / 100;
   const grossSum = netSum + vatAmount;
-  
+
   return { netSum, vatAmount, grossSum };
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, WifiOff, AlertCircle } from 'lucide-react'
+import { Plus, Edit2, Trash2, WifiOff, AlertCircle, Eye } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import api from '../lib/api'
 import { WOOD_TYPES, QUALITY_GRADES } from '../lib/utils'
 import { PageHeader, SearchInput, LoadingState, EmptyState, Modal, ConfirmDialog } from '../components/ui'
@@ -25,6 +26,7 @@ export default function Products() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null)
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['products'],
@@ -48,7 +50,7 @@ export default function Products() {
     onError: (error) => toast.error(getErrorMessage(error)),
   })
 
-  const filteredProducts = products.filter(p => 
+  const filteredProducts = products.filter(p =>
     p?.name?.toLowerCase().includes(search.toLowerCase()) ||
     p?.woodType?.toLowerCase().includes(search.toLowerCase())
   )
@@ -70,7 +72,7 @@ export default function Products() {
 
   return (
     <div className="space-y-6">
-      <PageHeader 
+      <PageHeader
         title="Produkte"
         action={
           <button onClick={() => { setEditingProduct(null); setShowModal(true); }} className="btn-primary flex items-center gap-2">
@@ -96,11 +98,18 @@ export default function Products() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filteredProducts.map((product) => (
-                <tr key={product.id} className="hover:bg-gray-50">
+                <tr
+                  key={product.id}
+                  className="hover:bg-gray-50 cursor-pointer"
+                  onClick={() => navigate(`/products/${product.id}`)}
+                >
                   <td className="px-6 py-4 font-medium">{product.name}</td>
                   <td className="px-6 py-4">{product.woodType}</td>
                   <td className="px-6 py-4">{product.qualityGrade}</td>
-                  <td className="px-6 py-4 text-right">
+                  <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => navigate(`/products/${product.id}`)} className="p-2 text-gray-400 hover:text-primary-600" title="Details">
+                      <Eye className="w-4 h-4" />
+                    </button>
                     <button onClick={() => { setEditingProduct(product); setShowModal(true); }} className="p-2 text-gray-400 hover:text-primary-600">
                       <Edit2 className="w-4 h-4" />
                     </button>

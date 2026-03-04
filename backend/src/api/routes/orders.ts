@@ -43,10 +43,10 @@ export async function orderRoutes(fastify: FastifyInstance) {
   const customerRepo = fastify.customerRepository as ICustomerRepository;
 
   // GET /api/orders - List all orders
-  fastify.get(
+  fastify.get<{ Querystring: { status?: string; customerId?: string; limit?: string; offset?: string } }>(
     '/orders',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Querystring: { status?: string; customerId?: string; limit?: string; offset?: string } }>) => {
+    async (request) => {
       const { status, customerId, limit, offset } = request.query;
       
       const orders = await orderRepo.findAll({
@@ -116,10 +116,10 @@ export async function orderRoutes(fastify: FastifyInstance) {
   );
 
   // GET /api/orders/:id - Get single order
-  fastify.get(
+  fastify.get<{ Params: { id: string } }>(
     '/orders/:id',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    async (request) => {
       const order = await orderRepo.findById(request.params.id as UUID);
       if (!order) {
         return fastify.httpErrors.notFound('Order not found');
@@ -135,10 +135,10 @@ export async function orderRoutes(fastify: FastifyInstance) {
   );
 
   // POST /api/orders - Create order
-  fastify.post(
+  fastify.post<{ Body: z.infer<typeof CreateOrderSchema> }>(
     '/orders',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Body: z.infer<typeof CreateOrderSchema> }>) => {
+    async (request) => {
       const data = CreateOrderSchema.parse(request.body);
 
       // Generate order number
@@ -198,10 +198,10 @@ export async function orderRoutes(fastify: FastifyInstance) {
   );
 
   // POST /api/orders/:id/production - Update production progress
-  fastify.post(
+  fastify.post<{ Params: { id: string }; Body: z.infer<typeof UpdateProductionSchema> }>(
     '/orders/:id/production',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof UpdateProductionSchema> }>) => {
+    async (request) => {
       const data = UpdateProductionSchema.parse(request.body);
       
       let order = await orderRepo.findById(request.params.id as UUID);
@@ -217,10 +217,10 @@ export async function orderRoutes(fastify: FastifyInstance) {
   );
 
   // POST /api/orders/:id/status - Change order status
-  fastify.post(
+  fastify.post<{ Params: { id: string }; Body: z.infer<typeof ChangeStatusSchema> }>(
     '/orders/:id/status',
     { preHandler: requireUnlocked },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof ChangeStatusSchema> }>) => {
+    async (request) => {
       const data = ChangeStatusSchema.parse(request.body);
       
       let order = await orderRepo.findById(request.params.id as UUID);

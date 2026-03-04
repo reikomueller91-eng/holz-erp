@@ -13,18 +13,18 @@ export default function Orders() {
   const { data: orders, isLoading } = useQuery({
     queryKey: ['orders'],
     queryFn: async () => {
-      const { data } = await api.get<Order[]>('/orders')
-      return data
+      const { data } = await api.get<{ orders: Order[] }>('/orders')
+      return data.orders ?? []
     },
   })
 
-  const filteredOrders = orders?.filter(o => 
+  const filteredOrders = orders?.filter(o =>
     o.customerName?.toLowerCase().includes(search.toLowerCase())
   )
 
   return (
     <div className="space-y-6">
-      <PageHeader 
+      <PageHeader
         title="Aufträge"
         action={
           <Link to="/offers" className="btn-primary flex items-center gap-2">
@@ -34,7 +34,7 @@ export default function Orders() {
         }
       />
 
-      <SearchInput 
+      <SearchInput
         value={search}
         onChange={setSearch}
         placeholder="Aufträge suchen..."
@@ -44,7 +44,7 @@ export default function Orders() {
         {isLoading ? (
           <LoadingState />
         ) : filteredOrders?.length === 0 ? (
-          <EmptyState 
+          <EmptyState
             message="Noch keine Aufträge vorhanden"
             searchActive={!!search}
           />
