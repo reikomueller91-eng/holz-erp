@@ -8,11 +8,32 @@ Das template muss über das frontend veränderbar sein. hierzu muss ein template
 verknüpfen mit einem kalender bzw kalenderplanungstool um die produktion abschätzen zu können.
 
 
-qr code für auftrage anlegen. dabei das pdf für den kunden über einen link verfügbar machen. der link muss eine lange zufällige nummer enthalten und ein pw, da es in der db extra für den kunden verschlüsselt gespeichert wird. das pdf soll dann mit den passenden werten aus der db generiert werden. es soll zudem den qr code mit den vollständigen link dorthin enthalten. später wenn die Rechnung erstellt wurde soll über den selben link die Rechnung aufrufbar sein. hierzu soll auch gemerkt werden wann das element angelegt wurde. es soll auch gemerkt werden wann das element das letzte mal aufgerufen wurde. dies soll in der db gespeichert werden. zudem soll der link max 14 tage verfügbar sein. 
+
+beim klick auf kunde muss dort eine möglichkeit existieren, um den kunden zu bearbeiten. 
+angebotsdauer muss auf angebot angezeigt werden. 
+
+in angebote muss die angebotsnummer sowie der anme angezeigt werden können. es muss eine suche über alles möglich sein. über name als auh über die angebotsnummer. 
+
+unter aufträgen muss die jeweilige zeile klickbar sein. 
+
+die zeile der rechnungen muss klickbar sein. auch muss der kundenname dort aufgefürt werden. so wie es unter angebote ist. 
+
+die passwörte in den einstellungen dürfen nicht im klartext dort stehen. es müssen beim erneuten anzeigen dummy werte eingetragen werden oder aber leer sein. zudem müssen die passworter in der db mit dem hauptpasswort verschlüsselt werden.
+
+einstellungen muss ein button zum db whipe existieren. der druck muss mindestens noch zweimall bestätigt werrden!!!
+
+rechnung die als bezahlt markiert werden soll geht nicht. 
+	http://localhost:8081/api/invoices/cc1082c6-0eec-4065-baf9-f4ab9c834c3a/mark-paid
+    {"error":"NOT_FOUND","message":"Route not found"}
+
+aufträg in rechnung umwandeln geht jedoch wird man nicht automatisch durch den klick zur entsprechenden rechnungsfenter weitergeleitet. implementiere dies wie es bei angebote zu aufträgen geht.
+
+logo muss in das pdf eingefügt werden können
+
+der generierte QR code muss auch auf der seite für die Rechnung einsehbar sein, damit kunden diesen direkt scannen oder abfotografieren können. 
+
+auf der rechnungsseite muss noch eine vollständige historie der rechnungsstellung existieren. sprich wann wurde die rechnung erstellt, wann wurde sie bezahlt, wann wurde sie versendet etc. dies soll in der db gespeichert werden. auch wann wurde das angebot erstellt mit angebotsnummer, wann wurde es angenommen, wann wurde es abgearbeitet etc. auch muss hier eine verlinkung auf den kunden existieren. exakte timestamps sind notwendig.
 
 
-steuernummer (eintellungen einstellbar) muss auf jedem dokument erscheinen. sowie ein lieferhinweis wegen ladungssicherung nach vde. der kunde ist für die ladungssicherung verantwortlich.
-
-unter kunden werden die angebote und aufträge nicht angezeigt und mit ienem fehler beendet.
-http://localhost:8081/api/customers/432da3fb-a31e-45d4-8500-4bacf51afb76/offers
-{"error":"NOT_FOUND","message":"Route not found"}
+qr code für auftrage anlegen. dabei das pdf für den kunden über einen link verfügbar machen. der link muss eine lange zufällige nummer enthalten und ein pw, da es in der db extra für den kunden verschlüsselt gespeichert wird. das pdf soll dann mit den passenden werten aus der db generiert werden. es soll zudem den qr code mit den vollständigen link dorthin enthalten. später wenn die Rechnung erstellt wurde soll über den selben link die Rechnung aufrufbar sein. hierzu soll auch gemerkt werden wann das element angelegt wurde. es soll auch gemerkt werden wann das element das letzte mal aufgerufen wurde. dies soll in der db gespeichert werden. zudem soll der link max 14 tage verfügbar sein. Achte darauf, dass alle backend funktionalitäten implementiert sind! überprüfe diese entsprechend!
+der main link bzw die domain soll über die einstellungen definiertbar sein.

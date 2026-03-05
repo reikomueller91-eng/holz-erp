@@ -187,6 +187,40 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE orders ADD COLUMN pdf_path TEXT;
     `,
   },
+  {
+    name: '008_document_links_schema',
+    up: `
+      CREATE TABLE IF NOT EXISTS document_links (
+        id TEXT PRIMARY KEY,
+        token TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        order_id TEXT REFERENCES orders(id) ON DELETE CASCADE,
+        invoice_id TEXT REFERENCES invoices(id) ON DELETE CASCADE,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_accessed_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_document_links_token ON document_links(token);
+      CREATE INDEX IF NOT EXISTS idx_document_links_order_id ON document_links(order_id);
+      CREATE INDEX IF NOT EXISTS idx_document_links_invoice_id ON document_links(invoice_id);
+    `,
+    down: `
+      DROP TABLE IF EXISTS document_links;
+    `,
+  },
+  {
+    name: '009_document_links_unified',
+    up: `
+      ALTER TABLE document_links ADD COLUMN offer_id TEXT REFERENCES offers(id) ON DELETE CASCADE;
+      ALTER TABLE document_links ADD COLUMN encrypted_url TEXT;
+      CREATE INDEX IF NOT EXISTS idx_document_links_offer_id ON document_links(offer_id);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_document_links_offer_id;
+      ALTER TABLE document_links DROP COLUMN offer_id;
+      ALTER TABLE document_links DROP COLUMN encrypted_url;
+    `,
+  },
 ];
 
 export async function runMigrations(db: IDatabase): Promise<void> {

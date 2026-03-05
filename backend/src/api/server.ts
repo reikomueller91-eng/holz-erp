@@ -26,6 +26,9 @@ import { invoiceRoutes } from './routes/invoices';
 import { dashboardRoutes } from './routes/dashboard';
 import { buildSettingsRoutes } from './routes/settings';
 import { systemRoutes } from './routes/system';
+import { publicRoutes } from './routes/public';
+import { DocumentLinkRepository } from '../infrastructure/repositories/DocumentLinkRepository';
+import { DocumentLinkService } from '../application/services/DocumentLinkService';
 import { HolzError } from '../shared/errors';
 import { logger } from '../shared/utils/logger';
 import { ZodError } from 'zod';
@@ -53,11 +56,13 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const offerRepository = new OfferRepository(db, cryptoService);
   const invoiceRepository = new InvoiceRepository(db, cryptoService);
   const systemConfigRepository = new SystemConfigRepository(db);
+  const documentLinkRepository = new DocumentLinkRepository(db);
 
   // ─── Application Services ──────────────────────────────────────
   const customerService = new CustomerService(customerRepository);
   const productService = new ProductService(productRepository);
   const pricingService = new PricingService(orderRepository);
+  const documentLinkService = new DocumentLinkService(documentLinkRepository, cryptoService);
 
   // ─── Decorate server with shared services ─────────────────────
   server.decorate('db', db);
@@ -91,6 +96,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   server.decorate('offerRepository', offerRepository);
   server.decorate('invoiceRepository', invoiceRepository);
   server.decorate('systemConfigRepository', systemConfigRepository);
+  server.decorate('documentLinkService', documentLinkService);
 
   // ─── Routes ───────────────────────────────────────────────────
   server.register(async (app) => {
@@ -106,6 +112,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     await systemRoutes(app);
     app.register(buildSettingsRoutes(systemConfigRepository));
   }, { prefix: '/api' });
+
+  // Public Routes (No Auth Required)
+  server.register(async (app) => {
+    await publicRoutes(app);
+  }, { prefix: '/api/public' });
 
   // ─── Error Handler ────────────────────────────────────────────
   server.setErrorHandler((error, _request, reply) => {

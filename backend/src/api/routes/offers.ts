@@ -425,7 +425,31 @@ export async function offerRoutes(fastify: FastifyInstance) {
             try {
                 const taxNumber = await configRepo.getValue('tax_number') || undefined;
                 const deliveryNote = await configRepo.getValue('delivery_note') || undefined;
-                const { filePath, fileName } = await pdfService.generateOfferPDF(offer, taxNumber, deliveryNote);
+                const mainDomain = await configRepo.getValue('main_domain') || 'http://localhost:3000';
+
+                // Manage Document Link
+                let docLink = await fastify.documentLinkService.getExistingLink({ offerId: offer.id });
+                let secureLink = '';
+
+                if (!docLink) {
+                    const { link, rawPassword } = await fastify.documentLinkService.createLink({ offerId: offer.id });
+                    docLink = link;
+                    // For Offers, we can use validUntil or default 14 days
+                    const expirationStr = offer.validUntil || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+                    await fastify.documentLinkService.extendExpiration(docLink, expirationStr);
+
+                    secureLink = `${mainDomain}/public/documents/${docLink.token}?pw=${rawPassword}`;
+                    await fastify.documentLinkService.saveEncryptedUrl(docLink, secureLink);
+                } else {
+                    const decrypted = fastify.documentLinkService.getDecryptedUrl(docLink);
+                    if (decrypted) {
+                        secureLink = decrypted;
+                    } else {
+                        throw new Error('Could not decrypt existing document link URL');
+                    }
+                }
+
+                const { filePath, fileName } = await pdfService.generateOfferPDF(offer, taxNumber, deliveryNote, secureLink);
 
                 // Update offer with PDF path
                 const updatedOffer = { ...offer, pdfPath: filePath };
@@ -435,6 +459,7 @@ export async function offerRoutes(fastify: FastifyInstance) {
                     message: 'PDF generated successfully',
                     fileName,
                     filePath,
+                    secureLink,
                 };
             } catch (error) {
                 return fastify.httpErrors.internalServerError(String(error));

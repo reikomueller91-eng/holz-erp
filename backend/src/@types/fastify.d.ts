@@ -10,6 +10,7 @@ import type { IInvoiceRepository } from '../infrastructure/repositories/InvoiceR
 import type { ISystemConfigRepository } from '../infrastructure/repositories/SystemConfigRepository';
 import type { ProductService } from '../application/services/ProductService';
 import type { PricingService } from '../application/services/PricingService';
+import type { DocumentLinkService } from '../application/services/DocumentLinkService';
 import type { FastifyError } from '@fastify/error';
 
 declare module 'fastify' {
@@ -30,6 +31,7 @@ declare module 'fastify' {
     // Services
     productService: ProductService;
     pricingService: PricingService;
+    documentLinkService: DocumentLinkService;
 
     // HTTP Errors plugin
     httpErrors: {

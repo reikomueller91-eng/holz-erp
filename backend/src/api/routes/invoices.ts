@@ -13,6 +13,7 @@ import { generateId } from '../../shared/utils/id';
 import { EmailSenderService } from '../../application/services/EmailSenderService';
 import fs from 'fs';
 import path from 'path';
+import type { DocumentLinkService } from '../../application/services/DocumentLinkService';
 
 const InvoiceItemSchema = z.object({
   orderItemId: z.string().optional(),
@@ -50,6 +51,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   const orderRepo = fastify.orderRepository as IOrderRepository;
   const customerRepo = fastify.customerRepository as ICustomerRepository;
   const configRepo = fastify.systemConfigRepository as any;
+  const documentLinkService = fastify.documentLinkService as DocumentLinkService;
   const pdfService = new PDFService(customerRepo);
   const emailService = new EmailSenderService(configRepo);
 
@@ -383,7 +385,43 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       try {
         const taxNumber = await configRepo.getValue('tax_number') || undefined;
         const deliveryNote = await configRepo.getValue('delivery_note') || undefined;
-        const { filePath, fileName } = await pdfService.generateInvoicePDF(invoice, taxNumber, deliveryNote);
+
+        // Manage Document Link
+        const mainDomain = await configRepo.getValue('main_domain') || 'http://localhost:3000';
+        let docLink = null;
+        let secureLink = '';
+
+        if (invoice.orderId) {
+          // Look up by orderId (which could have come from offerId)
+          docLink = await documentLinkService.getExistingLink({ orderId: invoice.orderId as UUID });
+        }
+
+        if (!docLink) {
+          const { link, rawPassword } = await documentLinkService.createLink({ invoiceId: invoice.id });
+          docLink = link;
+          secureLink = `${mainDomain.replace(/\/$/, '')}/api/public/documents/${docLink.token}?pw=${rawPassword}`;
+          await documentLinkService.saveEncryptedUrl(docLink, secureLink);
+        } else {
+          // Tie this existing link to the new Invoice!
+          docLink.invoiceId = invoice.id;
+          // Always refresh expiration to +14 days from Invoice generation
+          await documentLinkService.extendExpiration(docLink, new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString());
+
+          const decrypted = documentLinkService.getDecryptedUrl(docLink);
+          if (decrypted) {
+            secureLink = decrypted;
+          } else {
+            console.error('Could not decrypt existing document link URL. Re-generating...');
+            const { link, rawPassword } = await documentLinkService.createLink({ invoiceId: invoice.id });
+            docLink = link;
+            secureLink = `${mainDomain.replace(/\/$/, '')}/api/public/documents/${docLink.token}?pw=${rawPassword}`;
+            await documentLinkService.saveEncryptedUrl(docLink, secureLink);
+          }
+        }
+
+        const documentLinkUrl = secureLink;
+
+        const { filePath, fileName } = await pdfService.generateInvoicePDF(invoice, taxNumber, deliveryNote, documentLinkUrl);
 
         // Update invoice with PDF path
         const updatedInvoice = { ...invoice, pdfPath: filePath };
@@ -393,6 +431,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
           message: 'PDF generated successfully',
           fileName,
           filePath,
+          secureLink: documentLinkUrl,
         };
       } catch (error) {
         return {

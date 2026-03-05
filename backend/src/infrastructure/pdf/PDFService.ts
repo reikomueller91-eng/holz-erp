@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
+import QRCode from 'qrcode';
 import type { Invoice } from '../../domain/invoice/Invoice';
 import type { Offer } from '../../domain/offer/Offer';
 import type { Order } from '../../domain/order/Order';
@@ -28,7 +29,32 @@ export class PDFService {
     }
   }
 
-  async generateInvoicePDF(invoice: Invoice, taxNumber?: string, deliveryNote?: string): Promise<PDFGenerationResult> {
+  private drawRoundQRCode(doc: typeof PDFDocument, text: string, x: number, y: number, size: number) {
+    try {
+      const qrData = QRCode.create(text, { errorCorrectionLevel: 'M' });
+      const moduleCount = qrData.modules.size;
+      const margin = 2; // QR codes need quiet zones
+      const totalModules = moduleCount + margin * 2;
+      const moduleSize = size / totalModules;
+
+      for (let row = 0; row < moduleCount; row++) {
+        for (let col = 0; col < moduleCount; col++) {
+          if (qrData.modules.get(row, col)) {
+            // Calculate center of the module
+            const cx = x + (col + margin) * moduleSize + moduleSize / 2;
+            const cy = y + (row + margin) * moduleSize + moduleSize / 2;
+            const radius = (moduleSize / 2) * 0.9; // Slight gap between circles
+
+            doc.circle(cx, cy, radius).fill('black');
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to draw round QR code:', e);
+    }
+  }
+
+  async generateInvoicePDF(invoice: Invoice, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string): Promise<PDFGenerationResult> {
     const customer = await this.customerRepo.findById(invoice.customerId);
     const fileName = `invoice-${invoice.invoiceNumber}.pdf`;
     const filePath = path.join(this.outputDir, fileName);
@@ -95,6 +121,13 @@ export class PDFService {
       doc.text(`Steuernummer: ${taxNumber}`, 400, footerY);
     }
 
+    if (documentLinkUrl) {
+      // Reposition QR code to the top right beside the title
+      this.drawRoundQRCode(doc as any, documentLinkUrl, 420, 30, 80);
+      //doc.fontSize(6).text('Rechnung online aufrufen:', 420, 115);
+      //doc.fontSize(6).text(documentLinkUrl, 420, 125, { width: 140 });
+    }
+
     doc.end();
 
     return new Promise((resolve, reject) => {
@@ -105,7 +138,7 @@ export class PDFService {
     });
   }
 
-  async generateOfferPDF(offer: Offer, taxNumber?: string, deliveryNote?: string): Promise<PDFGenerationResult> {
+  async generateOfferPDF(offer: Offer, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string): Promise<PDFGenerationResult> {
     const customer = await this.customerRepo.findById(offer.customerId);
     const fileName = `offer-${offer.offerNumber}.pdf`;
     const filePath = path.join(this.outputDir, fileName);
@@ -171,6 +204,12 @@ export class PDFService {
     if (taxNumber) {
       doc.text(`Steuernummer: ${taxNumber}`, 400, footerY);
     }
+    if (documentLinkUrl) {
+      // Reposition QR code to the top right beside the title
+      this.drawRoundQRCode(doc as any, documentLinkUrl, 420, 30, 80);
+      //doc.fontSize(6).text('Angebot online aufrufen:', 420, 115);
+      //doc.fontSize(6).text(documentLinkUrl, 420, 125, { width: 140 });
+    }
 
     doc.end();
 
@@ -182,7 +221,7 @@ export class PDFService {
     });
   }
 
-  async generateOrderPDF(order: Order, sellerAddress: string, taxNumber?: string, deliveryNote?: string): Promise<PDFGenerationResult> {
+  async generateOrderPDF(order: Order, sellerAddress: string, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string): Promise<PDFGenerationResult> {
     const customer = await this.customerRepo.findById(order.customerId);
     const fileName = `order-${order.orderNumber}.pdf`;
     const filePath = path.join(this.outputDir, fileName);
@@ -242,6 +281,13 @@ export class PDFService {
     doc.fontSize(8).text('Wir danken für Ihren Auftrag!', 50, footerY);
     if (taxNumber) {
       doc.text(`Steuernummer: ${taxNumber}`, 400, footerY);
+    }
+
+    if (documentLinkUrl) {
+      // Reposition QR code to the top right beside the title
+      this.drawRoundQRCode(doc as any, documentLinkUrl, 420, 30, 80);
+      //doc.fontSize(6).text('Dokument online aufrufen / Rechnung folgt hier später:', 420, 115, { width: 140 });
+      //doc.fontSize(6).text(documentLinkUrl, 420, 125, { width: 140 });
     }
 
     doc.end();

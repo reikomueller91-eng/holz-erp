@@ -12,6 +12,7 @@ const UpdateSettingsSchema = z.object({
     smtpPort: z.number().optional(),
     smtpUser: z.string().optional(),
     smtpPassword: z.string().optional(),
+    mainDomain: z.string().url("Domain muss eine gültige URL sein").optional(),
 });
 
 export function buildSettingsRoutes(configRepo: ISystemConfigRepository): FastifyPluginAsync {
@@ -31,6 +32,7 @@ export function buildSettingsRoutes(configRepo: ISystemConfigRepository): Fastif
                     smtpPort: config['smtp_port'] ? parseInt(config['smtp_port'], 10) : 587,
                     smtpUser: config['smtp_user'] || '',
                     smtpPassword: config['smtp_password'] || '',
+                    mainDomain: config['main_domain'] || 'http://localhost:3000',
                 };
             }
         );
@@ -64,6 +66,9 @@ export function buildSettingsRoutes(configRepo: ISystemConfigRepository): Fastif
                 }
                 if (data.smtpPassword !== undefined) {
                     await configRepo.setValue('smtp_password', data.smtpPassword);
+                }
+                if (data.mainDomain !== undefined) {
+                    await configRepo.setValue('main_domain', data.mainDomain);
                 }
                 return reply.status(200).send({ message: 'Settings updated successfully' });
             }

@@ -11,6 +11,7 @@ import { generateId } from '../../shared/utils/id';
 import { PDFService } from '../../infrastructure/pdf/PDFService';
 import { EmailSenderService } from '../../application/services/EmailSenderService';
 import fs from 'fs';
+import type { DocumentLinkService } from '../../application/services/DocumentLinkService';
 
 // Validation schemas
 const OrderItemSchema = z.object({
@@ -46,6 +47,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
   const customerRepo = fastify.customerRepository as ICustomerRepository;
   const productService = fastify.productService as any;
   const configRepo = fastify.systemConfigRepository as any;
+  const documentLinkService = fastify.documentLinkService as DocumentLinkService;
   const pdfService = new PDFService(customerRepo);
   const emailService = new EmailSenderService(configRepo);
 
@@ -323,12 +325,46 @@ export async function orderRoutes(fastify: FastifyInstance) {
 
       await orderRepo.save(order);
 
-      // Generate PDF
+      // Generate Secure Link
+      const mainDomain = await configRepo.getValue('main_domain') || 'http://localhost:3000';
+
+      let docLink = null;
+      let secureLink = '';
+
+      if (data.offerId) {
+        docLink = await documentLinkService.getExistingLink({ offerId: data.offerId as UUID });
+      }
+
+      if (!docLink) {
+        const { link, rawPassword } = await documentLinkService.createLink({ orderId: order.id });
+        docLink = link;
+        secureLink = `${mainDomain.replace(/\/$/, '')}/api/public/documents/${docLink.token}?pw=${rawPassword}`;
+        await documentLinkService.saveEncryptedUrl(docLink, secureLink);
+      } else {
+        // Tie this existing link to the new Order!
+        docLink.orderId = order.id;
+        await documentLinkService.extendExpiration(docLink, new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString());
+
+        const decrypted = documentLinkService.getDecryptedUrl(docLink);
+        if (decrypted) {
+          secureLink = decrypted;
+        } else {
+          console.error('Could not decrypt existing document link URL. Re-generating...');
+          const { link, rawPassword } = await documentLinkService.createLink({ orderId: order.id });
+          docLink = link;
+          secureLink = `${mainDomain.replace(/\/$/, '')}/api/public/documents/${docLink.token}?pw=${rawPassword}`;
+          await documentLinkService.saveEncryptedUrl(docLink, secureLink);
+        }
+      }
+
+      const documentLinkUrl = secureLink;
+
+      // Generate PDF with the QR Code
       const sellerAddress = await configRepo.getValue('seller_address') || 'HolzERP Musterfirma\nMusterstraße 1\n12345 Musterstadt';
       const taxNumber = await configRepo.getValue('tax_number') || undefined;
       const deliveryNote = await configRepo.getValue('delivery_note') || undefined;
       try {
-        const { filePath } = await pdfService.generateOrderPDF(order, sellerAddress, taxNumber, deliveryNote);
+        const { filePath } = await pdfService.generateOrderPDF(order, sellerAddress, taxNumber, deliveryNote, documentLinkUrl);
         order.pdfPath = filePath;
         await orderRepo.update(order);
       } catch (err) {

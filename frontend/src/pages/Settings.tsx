@@ -12,6 +12,7 @@ export default function Settings() {
   const [vatPercent, setVatPercent] = useState<number>(19)
   const [taxNumber, setTaxNumber] = useState('')
   const [deliveryNote, setDeliveryNote] = useState('Der Kunde ist für die Ladungssicherung verantwortlich.')
+  const [mainDomain, setMainDomain] = useState('http://localhost:3000')
   const [smtpHost, setSmtpHost] = useState('')
   const [smtpPort, setSmtpPort] = useState<number>(587)
   const [smtpUser, setSmtpUser] = useState('')
@@ -39,6 +40,7 @@ export default function Settings() {
       }
       if (data && data.taxNumber !== undefined) setTaxNumber(data.taxNumber)
       if (data && data.deliveryNote !== undefined) setDeliveryNote(data.deliveryNote)
+      if (data && data.mainDomain) setMainDomain(data.mainDomain)
       if (data && data.smtpHost) setSmtpHost(data.smtpHost)
       if (data && data.smtpPort) setSmtpPort(data.smtpPort)
       if (data && data.smtpUser) setSmtpUser(data.smtpUser)
@@ -86,6 +88,7 @@ export default function Settings() {
         vatPercent,
         taxNumber,
         deliveryNote,
+        mainDomain,
         smtpHost,
         smtpPort,
         smtpUser,
@@ -194,6 +197,19 @@ export default function Settings() {
               placeholder="Der Kunde ist für die Ladungssicherung verantwortlich."
             />
             <p className="text-xs text-gray-500 mt-1">Wird auf Angeboten, Aufträgen und Rechnungen angedruckt.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Systemhaupt-URL (Basis-URL für ext. Links)
+            </label>
+            <input
+              type="text"
+              value={mainDomain}
+              onChange={(e) => setMainDomain(e.target.value)}
+              className="input max-w-full"
+              placeholder="https://deine-domain.de"
+            />
+            <p className="text-xs text-gray-500 mt-1">Wichtig für QR-Codes auf PDFs, damit Kunden auf das Dokument zugreifen können.</p>
           </div>
 
           <div className="pt-4 border-t border-gray-200">
