@@ -8,6 +8,7 @@ Das template muss über das frontend veränderbar sein. hierzu muss ein template
 verknüpfen mit einem kalender bzw kalenderplanungstool um die produktion abschätzen zu können.
 
 
+wunschdatum für lieferung muss in angebote und aufträge integriert werden. es muss zudem in den pdfs angezeigt werden.
 
 beim klick auf kunde muss dort eine möglichkeit existieren, um den kunden zu bearbeiten. 
 angebotsdauer muss auf angebot angezeigt werden. 
@@ -33,6 +34,8 @@ logo muss in das pdf eingefügt werden können
 der generierte QR code muss auch auf der seite für die Rechnung einsehbar sein, damit kunden diesen direkt scannen oder abfotografieren können. 
 
 auf der rechnungsseite muss noch eine vollständige historie der rechnungsstellung existieren. sprich wann wurde die rechnung erstellt, wann wurde sie bezahlt, wann wurde sie versendet etc. dies soll in der db gespeichert werden. auch wann wurde das angebot erstellt mit angebotsnummer, wann wurde es angenommen, wann wurde es abgearbeitet etc. auch muss hier eine verlinkung auf den kunden existieren. exakte timestamps sind notwendig.
+
+
 
 
 qr code für auftrage anlegen. dabei das pdf für den kunden über einen link verfügbar machen. der link muss eine lange zufällige nummer enthalten und ein pw, da es in der db extra für den kunden verschlüsselt gespeichert wird. das pdf soll dann mit den passenden werten aus der db generiert werden. es soll zudem den qr code mit den vollständigen link dorthin enthalten. später wenn die Rechnung erstellt wurde soll über den selben link die Rechnung aufrufbar sein. hierzu soll auch gemerkt werden wann das element angelegt wurde. es soll auch gemerkt werden wann das element das letzte mal aufgerufen wurde. dies soll in der db gespeichert werden. zudem soll der link max 14 tage verfügbar sein. Achte darauf, dass alle backend funktionalitäten implementiert sind! überprüfe diese entsprechend!
