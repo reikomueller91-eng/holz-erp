@@ -1,5 +1,4 @@
 import type { Invoice, InvoiceLineItem, InvoiceVersion } from '../../domain/invoice/Invoice';
-import { transitionInvoice, finalizeInvoice, createInvoiceVersion } from '../../domain/invoice/Invoice';
 import type { IDatabase } from '../../application/ports/IDatabase';
 import type { ICryptoService } from '../../application/ports/ICryptoService';
 import type { UUID, InvoiceStatus } from '../../shared/types';

@@ -6,7 +6,7 @@ export async function systemRoutes(fastify: FastifyInstance) {
     fastify.get(
         '/system/export/json',
         { preHandler: requireUnlocked },
-        async (request, reply) => {
+        async (_request, reply) => {
             const db = (fastify as any).db;
 
             // Get all table names
@@ -28,7 +28,7 @@ export async function systemRoutes(fastify: FastifyInstance) {
     fastify.get(
         '/system/export/csv',
         { preHandler: requireUnlocked },
-        async (request, reply) => {
+        async (_request, reply) => {
             const db = (fastify as any).db;
 
             const tables = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");

@@ -45,10 +45,8 @@ export class SmtpService {
 // IMAP Service
 export class ImapService {
   private client: Imap;
-  private config: EmailConfig['imap'];
 
   constructor(config: EmailConfig['imap']) {
-    this.config = config;
     this.client = new Imap({
       user: config.user,
       password: config.password,
@@ -61,7 +59,7 @@ export class ImapService {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.client.once('ready', () => resolve());
-      this.client.once('error', (err) => reject(err));
+      this.client.once('error', (err: any) => reject(err));
       this.client.connect();
     });
   }
@@ -80,7 +78,7 @@ export class ImapService {
     html?: string;
   }>> {
     return new Promise((resolve, reject) => {
-      this.client.openBox('INBOX', false, (err, box) => {
+      this.client.openBox('INBOX', false, (err: any) => {
         if (err) {
           reject(err);
           return;
@@ -88,8 +86,8 @@ export class ImapService {
 
         // Search for unseen emails from last 24 hours
         const searchCriteria = ['UNSEEN', ['SINCE', new Date(Date.now() - 24 * 60 * 60 * 1000)]];
-        
-        this.client.search(searchCriteria, (err, results) => {
+
+        this.client.search(searchCriteria, (err: any, results: any[]) => {
           if (err) {
             reject(err);
             return;
@@ -102,15 +100,14 @@ export class ImapService {
 
           const emails: Array<any> = [];
           let processed = 0;
-
-          results.forEach((msgId) => {
+          results.forEach((msgId: any) => {
             const fetch = this.client.fetch(msgId, { bodies: '' });
-            
-            fetch.on('message', (msg) => {
+
+            fetch.on('message', (msg: any) => {
               let rawEmail = '';
-              
-              msg.on('body', (stream) => {
-                stream.on('data', (chunk) => {
+
+              msg.on('body', (stream: any) => {
+                stream.on('data', (chunk: any) => {
                   rawEmail += chunk.toString();
                 });
               });
@@ -118,16 +115,19 @@ export class ImapService {
               msg.once('end', async () => {
                 try {
                   const parsed = await simpleParser(rawEmail);
-                  const from = parsed.from?.value?.[0];
-                  
+                  const parsedFrom: any = parsed.from;
+                  const parsedTo: any = parsed.to;
+                  const fromValue = Array.isArray(parsedFrom?.value) ? parsedFrom?.value[0] : parsedFrom?.value;
+                  const toValue = Array.isArray(parsedTo?.value) ? parsedTo?.value[0] : parsedTo?.value;
+
                   emails.push({
                     id: msgId.toString(),
                     subject: parsed.subject || '(kein Betreff)',
                     from: {
-                      name: from?.name || from?.address || 'Unbekannt',
-                      address: from?.address || '',
+                      name: fromValue?.name || fromValue?.address || 'Unbekannt',
+                      address: fromValue?.address || '',
                     },
-                    to: parsed.to?.value?.[0]?.address || '',
+                    to: toValue?.address || '',
                     date: parsed.date || new Date(),
                     text: parsed.text || '',
                     html: parsed.html || undefined,
@@ -143,7 +143,7 @@ export class ImapService {
               });
             });
 
-            fetch.once('error', (err) => {
+            fetch.once('error', (err: any) => {
               console.error('Fetch error:', err);
               processed++;
               if (processed === results.length) {
@@ -158,7 +158,7 @@ export class ImapService {
 
   markAsSeen(uid: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.client.addFlags(uid, ['\\Seen'], (err) => {
+      this.client.addFlags(uid, ['\\Seen'], (err: any) => {
         if (err) reject(err);
         else resolve();
       });
@@ -177,7 +177,7 @@ export class EmailWorker {
   constructor(config: EmailConfig) {
     this.config = config;
     this.smtp = new SmtpService(config.smtp);
-    
+
     if (config.imap.host && config.imap.user && config.imap.password) {
       this.imap = new ImapService(config.imap);
     }
@@ -189,9 +189,9 @@ export class EmailWorker {
       customerId: string;
       customerName: string;
       customerEmail: string;
-      items: Array<{productId: string; lengthMm: number; quantity: number}>;
+      items: Array<{ productId: string; lengthMm: number; quantity: number }>;
       notes: string;
-    }) => Promise<{id: string; ticketNumber: string}>
+    }) => Promise<{ id: string; ticketNumber: string }>
   ): Promise<void> {
     if (this.isRunning) return;
     this.isRunning = true;
@@ -215,7 +215,7 @@ export class EmailWorker {
 
       try {
         console.log('📥 Prüfe auf neue E-Mails...');
-        
+
         if (!this.imap) {
           console.log('⚠️ Kein IMAP - überspringe');
           if (this.isRunning) setTimeout(processLoop, this.pollInterval);
@@ -230,7 +230,7 @@ export class EmailWorker {
         for (const email of emails) {
           const isRelevant = this.isRelevantEmail(email.subject, email.text);
           console.log(`📨 E-Mail von ${email.from.address}: "${email.subject}" - Relevant: ${isRelevant}`);
-          
+
           if (isRelevant) {
             const ticketNumber = this.generateTicketNumber();
             console.log(`🎫 Ticket: ${ticketNumber}`);
@@ -241,7 +241,7 @@ export class EmailWorker {
 
             if (requestedProducts.length > 0) {
               // Create offer
-              const offer = await createOffer({
+              await createOffer({
                 customerId: '',
                 customerName: email.from.name,
                 customerEmail: email.from.address,
@@ -297,9 +297,9 @@ export class EmailWorker {
     return this.config.filterKeywords.some(keyword => content.includes(keyword.toLowerCase()));
   }
 
-  private extractProductRequests(text: string, products: ProductData[]): Array<{product: ProductData; requestedLength: number; quantity: number}> {
+  private extractProductRequests(text: string, products: ProductData[]): Array<{ product: ProductData; requestedLength: number; quantity: number }> {
     const textLower = text.toLowerCase();
-    const results: Array<{product: ProductData; requestedLength: number; quantity: number}> = [];
+    const results: Array<{ product: ProductData; requestedLength: number; quantity: number }> = [];
 
     for (const product of products) {
       if (textLower.includes(product.name.toLowerCase())) {

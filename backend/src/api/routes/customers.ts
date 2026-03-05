@@ -5,6 +5,9 @@ import type { CustomerContactInfo } from '../../domain/customer/Customer';
 import type { UUID } from '../../shared/types';
 import { CUSTOMER_SOURCES } from '../../shared/types';
 import { LockedError } from '../../shared/errors';
+import type { IOfferRepository } from '../../infrastructure/repositories/OfferRepository';
+import type { IOrderRepository } from '../../infrastructure/repositories/OrderRepository';
+import type { IInvoiceRepository } from '../../infrastructure/repositories/InvoiceRepository';
 
 interface CustomerRouteDeps {
   customerService: CustomerService;
@@ -184,5 +187,38 @@ export function registerCustomerRoutes(
       customerService.delete(request.params.id as UUID);
       return reply.status(204).send();
     },
+  );
+
+  // GET /api/customers/:id/offers
+  server.get<{ Params: { id: string } }>(
+    '/customers/:id/offers',
+    async (request, reply) => {
+      requireUnlocked(server);
+      const offerRepo = server.offerRepository as IOfferRepository;
+      const offers = await offerRepo.findByCustomer(request.params.id as UUID);
+      return reply.send(offers);
+    }
+  );
+
+  // GET /api/customers/:id/orders
+  server.get<{ Params: { id: string } }>(
+    '/customers/:id/orders',
+    async (request, reply) => {
+      requireUnlocked(server);
+      const orderRepo = server.orderRepository as IOrderRepository;
+      const orders = await orderRepo.findByCustomer(request.params.id as UUID);
+      return reply.send(orders);
+    }
+  );
+
+  // GET /api/customers/:id/invoices
+  server.get<{ Params: { id: string } }>(
+    '/customers/:id/invoices',
+    async (request, reply) => {
+      requireUnlocked(server);
+      const invoiceRepo = server.invoiceRepository as IInvoiceRepository;
+      const invoices = await invoiceRepo.findByCustomer(request.params.id as UUID);
+      return reply.send(invoices);
+    }
   );
 }

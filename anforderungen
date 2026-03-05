@@ -1,5 +1,3 @@
-neues angebot -> +Position biem einfügen von neuen Position werden Spaltennamen benötigt. aktuell sind der name, die länge, anzahl und preis angegeben. hierfür muss der spaltenname angeben werden. 
-
 angebote sollen auch den bruttopreis zeigen. netto, mwst, brutto. der bruttopreis soll hierbei abgerundet werden auf volle euro oder aber volle 5 euro beträge. so kann ein preis von 12,67€ auf 12€ abgerundet werden. ein wert von 147,67€ auf 145€ abgerundet werden. hierfür müssen die preise der einzelnen positionen als auch die längen etc dynamisch durchpropiert werden, bis die endsumme erreicht ist. es müssen werte eventuell erhöht oder dynamisch verringert werden, bis der betrag ca. +-0,03 Euro stimmt. diese endsumme soll dann als bruttopreis angezeigt werden.
 
 
@@ -9,9 +7,7 @@ Das template muss über das frontend veränderbar sein. hierzu muss ein template
 
 verknüpfen mit einem kalender bzw kalenderplanungstool um die produktion abschätzen zu können.
 
-du als agent sollst auf eine eingehende email, die ein angebot möchte, die benötigten daten aus der db laden. die entsprechenden produkte heraussuchen und ein angebot erstellen. dieses angebot soll zuerst als pdf an mich gesendet werden. hierzu soll anhand der email automatisch der absender ermittelt werden und dieer soll dann entsprechend in der pdf eingetragen werden. die email muss dann im frontend zum jeweiligen angebot verlinkt werden. eventuell indem automatisch an die email eine ticketnummer angehängt wird. somit sollte die email verlinkt und dort angezeigt werden. eventuell ist es dann auch sinnvoll direkt emails aus dem program zu versenden. diese email soll das angebot direkt als anhang erhalten. die ticketnummer sollte hier angehängt bleiben, damit antworten sich direkt drauf beziehen.
-
-
+qr code für auftrage anlegen. dabei das pdf für den kunden über einen link verfügbar machen. der link muss eine lange zufällige nummer enthalten und ein pw, da es in der db extra für den kunden verschlüsselt gespeichert wird. das pdf soll dann mit den passenden werten aus der db generiert werden. es soll zudem den qr code mit den vollständigen link dorthin enthalten.
 
 
 steuernummer (eintellungen einstellbar) muss auf jedem dokument erscheinen. sowie ein lieferhinweis wegen ladungssicherung nach vde. der kunde ist für die ladungssicherung verantwortlich.

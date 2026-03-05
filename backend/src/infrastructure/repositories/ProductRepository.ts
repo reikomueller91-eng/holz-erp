@@ -1,7 +1,7 @@
 import type { IProductRepository, ProductListOptions } from '../../application/ports/IProductRepository';
 import type { IDatabase } from '../../application/ports/IDatabase';
 import type { ICryptoService } from '../../application/ports/ICryptoService';
-import type { Product, PriceHistory, Dimensions } from '../../domain/product/Product';
+import type { Product, PriceHistory } from '../../domain/product/Product';
 import type { UUID, ISODateTime, WoodType, QualityGrade } from '../../shared/types';
 
 interface ProductRow {

@@ -10,6 +10,7 @@ import { transitionInvoice, finalizeInvoice, createInvoiceVersion, calcInvoiceTo
 import type { InvoiceStatus, UUID } from '../../shared/types';
 import { requireUnlocked } from '../middleware/auth';
 import { generateId } from '../../shared/utils/id';
+import { EmailSenderService } from '../../application/services/EmailSenderService';
 import fs from 'fs';
 import path from 'path';
 
@@ -50,6 +51,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
   const customerRepo = fastify.customerRepository as ICustomerRepository;
   const configRepo = fastify.systemConfigRepository as any;
   const pdfService = new PDFService(customerRepo);
+  const emailService = new EmailSenderService(configRepo);
 
   // GET /api/invoices - List all invoices
   fastify.get<{ Querystring: { status?: string; customerId?: string; limit?: string; offset?: string } }>(
@@ -110,6 +112,39 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       reply.header('Content-Type', 'application/pdf');
       reply.header('Content-Disposition', `inline; filename=${path.basename(anyInvoice.pdfPath)}`);
       return reply.send(stream);
+    }
+  );
+
+  // POST /api/invoices/:id/email - Send invoice via email
+  fastify.post<{ Params: { id: string } }>(
+    '/invoices/:id/email',
+    { preHandler: requireUnlocked },
+    async (request, reply) => {
+      const invoice = await invoiceRepo.findById(request.params.id as UUID);
+      if (!invoice) return reply.status(404).send({ error: 'Invoice not found' });
+
+      const customer = await customerRepo.findById(invoice.customerId);
+      const toEmail = customer?.contactInfo?.email;
+      if (!toEmail) return reply.status(400).send({ error: 'Customer has no email address' });
+
+      const anyInvoice = invoice as any;
+      if (!anyInvoice.pdfPath || !fs.existsSync(anyInvoice.pdfPath)) {
+        return reply.status(400).send({ error: 'PDF not generated yet or file missing' });
+      }
+
+      try {
+        await emailService.sendEmailWithAttachment(
+          toEmail,
+          `Rechnung ${invoice.invoiceNumber}`,
+          `Sehr geehrte Damen und Herren,\n\nanbei erhalten Sie die Rechnung ${invoice.invoiceNumber}.\n\nMit freundlichen Grüßen`,
+          `<p>Sehr geehrte Damen und Herren,</p><p>anbei erhalten Sie die Rechnung ${invoice.invoiceNumber}.</p><p>Mit freundlichen Grüßen</p>`,
+          anyInvoice.pdfPath,
+          `Rechnung-${invoice.invoiceNumber}.pdf`
+        );
+        return { message: 'Email sent successfully' };
+      } catch (error: any) {
+        return reply.status(500).send({ error: error.message || 'Failed to send email' });
+      }
     }
   );
 
@@ -346,7 +381,9 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       }
 
       try {
-        const { filePath, fileName } = await pdfService.generateInvoicePDF(invoice);
+        const taxNumber = await configRepo.getValue('tax_number') || undefined;
+        const deliveryNote = await configRepo.getValue('delivery_note') || undefined;
+        const { filePath, fileName } = await pdfService.generateInvoicePDF(invoice, taxNumber, deliveryNote);
 
         // Update invoice with PDF path
         const updatedInvoice = { ...invoice, pdfPath: filePath };

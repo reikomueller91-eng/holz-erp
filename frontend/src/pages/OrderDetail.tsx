@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Factory, FileText } from 'lucide-react'
+import { ArrowLeft, Factory, FileText, Send } from 'lucide-react'
 import api from '../lib/api'
 import type { Order, Invoice } from '../types'
 
@@ -11,7 +11,7 @@ export default function OrderDetail() {
   const { data: orderData } = useQuery({
     queryKey: ['order', id],
     queryFn: async () => {
-      const { data } = await api.get<{ order: Order; customer?: { name: string } }>(`/orders/${id}`)
+      const { data } = await api.get<{ order: Order; customer?: any }>(`/orders/${id}`)
       return data
     },
   })
@@ -41,6 +41,17 @@ export default function OrderDetail() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['order-invoice', id] }),
   })
 
+  const emailMutation = useMutation({
+    mutationFn: () => api.post(`/orders/${id}/email`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['order', id] })
+      alert('E-Mail erfolgreich versendet')
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.error || 'Fehler beim Versenden der E-Mail')
+    }
+  })
+
   if (!order) return <div className="p-8 text-center">Laden...</div>
 
   const items = order.items ?? []
@@ -48,6 +59,8 @@ export default function OrderDetail() {
   const totalProduced = items.reduce((sum, item) => sum + item.quantityProduced, 0)
   const productionProgress = totalTarget > 0 ? (totalProduced / totalTarget) * 100 : 0
   const isFinished = order.status === 'finished'
+
+  const hasEmail = Boolean(orderData?.customer?.contactInfo?.email)
 
   return (
     <div className="space-y-6">
@@ -68,6 +81,17 @@ export default function OrderDetail() {
             >
               <FileText className="w-4 h-4" />
               Rechnung erstellen
+            </button>
+          )}
+          {order.pdfPath && (
+            <button
+              onClick={() => emailMutation.mutate()}
+              disabled={emailMutation.isPending || !hasEmail}
+              className={`btn-primary flex items-center gap-2 ${!hasEmail ? 'opacity-50 cursor-not-allowed bg-gray-400 hover:bg-gray-400' : ''}`}
+              title={!hasEmail ? "Kunde hat keine E-Mail Adresse hinterlegt" : "Auftrag per E-Mail senden"}
+            >
+              <Send className="w-4 h-4" />
+              {emailMutation.isPending ? 'Wird gesendet...' : 'Per E-Mail senden'}
             </button>
           )}
           {order.pdfPath && (

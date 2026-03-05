@@ -10,6 +10,12 @@ export default function Settings() {
   const [message, setMessage] = useState('')
   const [sellerAddress, setSellerAddress] = useState('')
   const [vatPercent, setVatPercent] = useState<number>(19)
+  const [taxNumber, setTaxNumber] = useState('')
+  const [deliveryNote, setDeliveryNote] = useState('Der Kunde ist für die Ladungssicherung verantwortlich.')
+  const [smtpHost, setSmtpHost] = useState('')
+  const [smtpPort, setSmtpPort] = useState<number>(587)
+  const [smtpUser, setSmtpUser] = useState('')
+  const [smtpPassword, setSmtpPassword] = useState('')
   const [addressMessage, setAddressMessage] = useState('')
 
   const { data: status } = useQuery({
@@ -31,6 +37,12 @@ export default function Settings() {
       if (data && data.vatPercent !== undefined) {
         setVatPercent(data.vatPercent)
       }
+      if (data && data.taxNumber !== undefined) setTaxNumber(data.taxNumber)
+      if (data && data.deliveryNote !== undefined) setDeliveryNote(data.deliveryNote)
+      if (data && data.smtpHost) setSmtpHost(data.smtpHost)
+      if (data && data.smtpPort) setSmtpPort(data.smtpPort)
+      if (data && data.smtpUser) setSmtpUser(data.smtpUser)
+      if (data && data.smtpPassword) setSmtpPassword(data.smtpPassword)
       return data
     },
   })
@@ -69,14 +81,23 @@ export default function Settings() {
 
   const updateSettingsMutation = useMutation({
     mutationFn: async () => {
-      await api.put('/settings', { sellerAddress, vatPercent })
+      await api.put('/settings', {
+        sellerAddress,
+        vatPercent,
+        taxNumber,
+        deliveryNote,
+        smtpHost,
+        smtpPort,
+        smtpUser,
+        smtpPassword
+      })
     },
     onSuccess: () => {
-      setAddressMessage('Absenderadresse erfolgreich gespeichert')
+      setAddressMessage('Einstellungen erfolgreich gespeichert')
       setTimeout(() => setAddressMessage(''), 3000)
     },
     onError: (error: any) => {
-      setAddressMessage(error.response?.data?.message || 'Fehler beim Speichern der Adresse')
+      setAddressMessage(error.response?.data?.message || 'Fehler beim Speichern der Einstellungen')
     },
   })
 
@@ -149,10 +170,88 @@ export default function Settings() {
             />
             <p className="text-xs text-gray-500 mt-1">Wird bei der Erstellung neuer Angebote und Aufträge verwendet.</p>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Steuernummer
+            </label>
+            <input
+              type="text"
+              value={taxNumber}
+              onChange={(e) => setTaxNumber(e.target.value)}
+              className="input max-w-full"
+              placeholder="z.B. 123/456/7890"
+            />
+            <p className="text-xs text-gray-500 mt-1">Erscheint auf allen generierten PDF-Dokumenten im Fußbereich.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Lieferhinweis (Ladungssicherung)
+            </label>
+            <textarea
+              value={deliveryNote}
+              onChange={(e) => setDeliveryNote(e.target.value)}
+              className="input min-h-[80px]"
+              placeholder="Der Kunde ist für die Ladungssicherung verantwortlich."
+            />
+            <p className="text-xs text-gray-500 mt-1">Wird auf Angeboten, Aufträgen und Rechnungen angedruckt.</p>
+          </div>
+
+          <div className="pt-4 border-t border-gray-200">
+            <h3 className="text-md font-semibold mb-3">SMTP E-Mail Server Einstellungen</h3>
+            <p className="text-sm text-gray-500 mb-4">Wird verwendet, um Rechnungen, Angebote und Aufträge direkt aus dem System per E-Mail zu versenden.</p>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">SMTP Host</label>
+                  <input
+                    type="text"
+                    value={smtpHost}
+                    onChange={(e) => setSmtpHost(e.target.value)}
+                    className="input"
+                    placeholder="mail.example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">SMTP Port</label>
+                  <input
+                    type="number"
+                    value={smtpPort}
+                    onChange={(e) => setSmtpPort(Number(e.target.value))}
+                    className="input"
+                    placeholder="587"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Benutzername (meist E-Mail Adresse)</label>
+                <input
+                  type="text"
+                  value={smtpUser}
+                  onChange={(e) => setSmtpUser(e.target.value)}
+                  className="input"
+                  placeholder="info@example.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Passwort</label>
+                <input
+                  type="password"
+                  value={smtpPassword}
+                  onChange={(e) => setSmtpPassword(e.target.value)}
+                  className="input"
+                  placeholder="********"
+                />
+              </div>
+            </div>
+          </div>
+
           <button
             type="submit"
             disabled={updateSettingsMutation.isPending}
-            className="btn-primary"
+            className="btn-primary mt-6"
           >
             {updateSettingsMutation.isPending ? 'Wird gespeichert...' : 'Einstellungen speichern'}
           </button>

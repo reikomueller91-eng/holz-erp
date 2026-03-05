@@ -1,5 +1,4 @@
 import type { Offer, OfferItem, OfferVersion } from '../../domain/offer/Offer';
-import { transitionOffer, createOfferVersion } from '../../domain/offer/Offer';
 import type { IDatabase } from '../../application/ports/IDatabase';
 import type { ICryptoService } from '../../application/ports/ICryptoService';
 import type { UUID, OfferStatus } from '../../shared/types';

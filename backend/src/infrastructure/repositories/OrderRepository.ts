@@ -7,8 +7,10 @@ export interface IOrderRepository {
   findAll(options?: { status?: OrderStatus; customerId?: UUID; limit?: number; offset?: number }): Promise<Order[]>;
   findById(id: UUID): Promise<Order | null>;
   findByProduct(productId: UUID): Promise<Order[]>;
+  findByProduct(productId: UUID): Promise<Order[]>;
   findByOfferId(offerId: UUID): Promise<Order | null>;
   findByOrderNumber(orderNumber: string): Promise<Order | null>;
+  findByCustomer(customerId: UUID): Promise<Order[]>;
   save(order: Order): Promise<void>;
   update(order: Order): Promise<void>;
 }
@@ -92,6 +94,11 @@ export class OrderRepository implements IOrderRepository {
   async findByOrderNumber(orderNumber: string): Promise<Order | null> {
     const row = this.db.queryOne<OrderRow>('SELECT * FROM orders WHERE order_number = ?', [orderNumber]);
     return row ? this.rowToOrder(row) : null;
+  }
+
+  async findByCustomer(customerId: UUID): Promise<Order[]> {
+    const rows = this.db.query<OrderRow>('SELECT * FROM orders WHERE customer_id = ? ORDER BY created_at DESC', [customerId]);
+    return Promise.all(rows.map(row => this.rowToOrder(row)));
   }
 
   async save(order: Order): Promise<void> {

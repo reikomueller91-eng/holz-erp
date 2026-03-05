@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyRequest } from 'fastify';
+import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { PricingService } from '../../application/services/PricingService';
 import type { UUID } from '../../shared/types';
@@ -33,7 +33,7 @@ export async function pricingRoutes(fastify: FastifyInstance) {
     { preHandler: requireUnlocked },
     async (request) => {
       const data = CalculatePriceSchema.parse(request.body);
-      
+
       const result = pricingService.calculatePrice(
         data.heightMm,
         data.widthMm,
@@ -53,7 +53,7 @@ export async function pricingRoutes(fastify: FastifyInstance) {
     { preHandler: requireUnlocked },
     async (request) => {
       const data = PriceHistorySchema.parse(request.body);
-      
+
       const history = await pricingService.getPriceHistory(
         data.productId as UUID,
         data.customerId as UUID | undefined
@@ -69,7 +69,7 @@ export async function pricingRoutes(fastify: FastifyInstance) {
     { preHandler: requireUnlocked },
     async (request) => {
       const data = SuggestPriceSchema.parse(request.body);
-      
+
       const suggestion = await pricingService.suggestPrice(
         data.productId as UUID,
         data.basePrice,

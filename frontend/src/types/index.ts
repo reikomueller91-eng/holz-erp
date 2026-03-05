@@ -43,15 +43,19 @@ export interface OfferLineItem {
 
 export interface Offer {
   id: string
+  offerNumber?: string
   version: number
   customerId: string
   customerName?: string
   status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'
-  lineItems: OfferLineItem[]
+  lineItems?: OfferLineItem[]
+  items?: any[]
   validUntil: string
   notes?: string
   pdfPath?: string
-  totalAmount: number
+  totalAmount?: number
+  netSum?: number
+  grossSum?: number
   createdAt: string
   updatedAt: string
 }

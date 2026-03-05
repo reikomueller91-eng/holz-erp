@@ -9,6 +9,7 @@ import type { OrderStatus, UUID } from '../../shared/types';
 import { requireUnlocked } from '../middleware/auth';
 import { generateId } from '../../shared/utils/id';
 import { PDFService } from '../../infrastructure/pdf/PDFService';
+import { EmailSenderService } from '../../application/services/EmailSenderService';
 import fs from 'fs';
 
 // Validation schemas
@@ -46,6 +47,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
   const productService = fastify.productService as any;
   const configRepo = fastify.systemConfigRepository as any;
   const pdfService = new PDFService(customerRepo);
+  const emailService = new EmailSenderService(configRepo);
 
   // GET /api/orders - List all orders
   fastify.get<{ Querystring: { status?: string; customerId?: string; limit?: string; offset?: string } }>(
@@ -223,6 +225,38 @@ export async function orderRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // POST /api/orders/:id/email - Send order via email
+  fastify.post<{ Params: { id: string } }>(
+    '/orders/:id/email',
+    { preHandler: requireUnlocked },
+    async (request, reply) => {
+      const order = await orderRepo.findById(request.params.id as UUID);
+      if (!order) return reply.status(404).send({ error: 'Order not found' });
+
+      const customer = await customerRepo.findById(order.customerId);
+      const toEmail = customer?.contactInfo?.email;
+      if (!toEmail) return reply.status(400).send({ error: 'Customer has no email address' });
+
+      if (!order.pdfPath || !fs.existsSync(order.pdfPath)) {
+        return reply.status(400).send({ error: 'PDF not generated yet or file missing' });
+      }
+
+      try {
+        await emailService.sendEmailWithAttachment(
+          toEmail,
+          `Auftrag ${order.orderNumber}`,
+          `Sehr geehrte Damen und Herren,\n\nanbei erhalten Sie die Auftragsbestätigung ${order.orderNumber}.\n\nMit freundlichen Grüßen`,
+          `<p>Sehr geehrte Damen und Herren,</p><p>anbei erhalten Sie die Auftragsbestätigung ${order.orderNumber}.</p><p>Mit freundlichen Grüßen</p>`,
+          order.pdfPath,
+          `Auftrag-${order.orderNumber}.pdf`
+        );
+        return { message: 'Email sent successfully' };
+      } catch (error: any) {
+        return reply.status(500).send({ error: error.message || 'Failed to send email' });
+      }
+    }
+  );
+
   // POST /api/orders - Create order
   fastify.post<{ Body: z.infer<typeof CreateOrderSchema> }>(
     '/orders',
@@ -291,8 +325,10 @@ export async function orderRoutes(fastify: FastifyInstance) {
 
       // Generate PDF
       const sellerAddress = await configRepo.getValue('seller_address') || 'HolzERP Musterfirma\nMusterstraße 1\n12345 Musterstadt';
+      const taxNumber = await configRepo.getValue('tax_number') || undefined;
+      const deliveryNote = await configRepo.getValue('delivery_note') || undefined;
       try {
-        const { filePath } = await pdfService.generateOrderPDF(order, sellerAddress);
+        const { filePath } = await pdfService.generateOrderPDF(order, sellerAddress, taxNumber, deliveryNote);
         order.pdfPath = filePath;
         await orderRepo.update(order);
       } catch (err) {

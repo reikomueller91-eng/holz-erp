@@ -8,23 +8,39 @@ export default function InvoiceDetail() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
 
-  const { data: invoice } = useQuery({
+  const { data } = useQuery({
     queryKey: ['invoice', id],
     queryFn: async () => {
-      const { data } = await api.get<{ invoice: Invoice; customer: any; versions: any[] }>(`/invoices/${id}`)
-      return data.invoice
+      const res = await api.get<{ invoice: Invoice; customer: any; versions: any[] }>(`/invoices/${id}`)
+      return res.data
     },
   })
 
-  const sendMutation = useMutation({
-    mutationFn: () => api.post(`/invoices/${id}/send`),
+  const invoice = data?.invoice
+  const customer = data?.customer
+
+  const emailMutation = useMutation({
+    mutationFn: () => api.post(`/invoices/${id}/email`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoice', id] })
+      alert('E-Mail erfolgreich versendet')
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.error || 'Fehler beim Versenden der E-Mail')
+    }
+  })
+
+  // We no longer have a "send" mutation to change status, "send" means email now in terminology.
+  // Actually, we should keep the status change or combine it.
+  const markSentMutation = useMutation({
+    mutationFn: () => api.post(`/invoices/${id}/status`, { status: 'sent' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoice', id] }),
   })
 
   const markPaidMutation = useMutation({
     mutationFn: () => api.post(`/invoices/${id}/mark-paid`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoice', id] }),
-  })
+  });
 
   const finalizeMutation = useMutation({
     mutationFn: () => api.post(`/invoices/${id}/finalize`),
@@ -37,6 +53,9 @@ export default function InvoiceDetail() {
   })
 
   if (!invoice) return <div className="p-8 text-center">Laden...</div>
+
+  // Verify whether customer has email
+  const hasEmail = Boolean(customer?.contactInfo?.email)
 
   return (
     <div className="space-y-6">
@@ -69,14 +88,29 @@ export default function InvoiceDetail() {
               </button>
             </>
           )}
-          {invoice.status === 'draft' && invoice.pdfPath && (
+          {invoice.pdfPath && (
             <button
-              onClick={() => sendMutation.mutate()}
-              disabled={sendMutation.isPending}
-              className="btn-primary flex items-center gap-2"
+              onClick={() => {
+                emailMutation.mutate();
+                if (invoice.status === 'draft') {
+                  markSentMutation.mutate();
+                }
+              }}
+              disabled={emailMutation.isPending || !hasEmail}
+              className={`btn-primary flex items-center gap-2 ${!hasEmail ? 'opacity-50 cursor-not-allowed bg-gray-400 hover:bg-gray-400' : ''}`}
+              title={!hasEmail ? "Kunde hat keine E-Mail Adresse hinterlegt" : "Rechnung per E-Mail senden"}
             >
               <Send className="w-4 h-4" />
-              Senden
+              {emailMutation.isPending ? 'Wird gesendet...' : 'Per E-Mail senden'}
+            </button>
+          )}
+          {invoice.status === 'draft' && invoice.pdfPath && (
+            <button
+              onClick={() => markSentMutation.mutate()}
+              disabled={markSentMutation.isPending}
+              className="btn-secondary flex items-center gap-2"
+            >
+              Als gesendet markieren
             </button>
           )}
           {invoice.status === 'sent' && (

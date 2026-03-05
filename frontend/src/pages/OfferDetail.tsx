@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Download, CheckCircle, XCircle, FileText, ClipboardList, Edit, ArrowRight, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Download, CheckCircle, XCircle, FileText, ClipboardList, Edit, ArrowRight, Plus, Trash2, Send } from 'lucide-react'
 import api from '../lib/api'
 import { formatCurrency } from '../lib/utils'
 import type { Offer, Product } from '../types'
@@ -50,9 +50,25 @@ export default function OfferDetail() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['offer', id] }),
   })
 
+  const markSentMutation = useMutation({
+    mutationFn: () => api.post(`/offers/${id}/status`, { status: 'sent' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['offer', id] }),
+  })
+
   const generatePdfMutation = useMutation({
     mutationFn: () => api.post(`/offers/${id}/pdf`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['offer', id] }),
+  })
+
+  const emailMutation = useMutation({
+    mutationFn: () => api.post(`/offers/${id}/email`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['offer', id] })
+      alert('E-Mail erfolgreich versendet')
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.error || 'Fehler beim Versenden der E-Mail')
+    }
   })
 
   const updateMutation = useMutation({
@@ -146,6 +162,10 @@ export default function OfferDetail() {
   const offerStatus = offer.status as string
   const isConverted = offerStatus === 'converted'
 
+  // Verify whether customer has email
+  const anyOffer = offer as any
+  const hasEmail = Boolean(anyOffer.customer?.contactInfo?.email)
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -172,6 +192,31 @@ export default function OfferDetail() {
             >
               <FileText className="w-4 h-4" />
               {generatePdfMutation.isPending ? 'Generiert...' : 'PDF generieren'}
+            </button>
+          )}
+          {(offer as any).pdfPath && (
+            <button
+              onClick={() => {
+                emailMutation.mutate();
+                if (offer.status === 'draft') {
+                  markSentMutation.mutate();
+                }
+              }}
+              disabled={emailMutation.isPending || !hasEmail}
+              className={`btn-primary flex items-center gap-2 ${!hasEmail ? 'opacity-50 cursor-not-allowed bg-gray-400 hover:bg-gray-400' : ''}`}
+              title={!hasEmail ? "Kunde hat keine E-Mail Adresse hinterlegt" : "Angebot per E-Mail senden"}
+            >
+              <Send className="w-4 h-4" />
+              {emailMutation.isPending ? 'Wird gesendet...' : 'Per E-Mail senden'}
+            </button>
+          )}
+          {offer.status === 'draft' && (offer as any).pdfPath && (
+            <button
+              onClick={() => markSentMutation.mutate()}
+              disabled={markSentMutation.isPending}
+              className="btn-secondary flex items-center gap-2"
+            >
+              Als gesendet markieren
             </button>
           )}
           {(offer as any).pdfPath && (
@@ -236,7 +281,7 @@ export default function OfferDetail() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {offer.lineItems.map((item) => (
+                {(offer.lineItems || (offer.items as any[]) || []).map((item: any) => (
                   <tr key={item.id}>
                     <td className="px-6 py-4">
                       <p className="font-medium text-gray-900">{item.productName || 'Unbekannt'}</p>
@@ -255,7 +300,7 @@ export default function OfferDetail() {
                 <tr>
                   <td colSpan={4} className="px-6 py-4 text-right font-medium text-gray-700">Gesamtsumme:</td>
                   <td className="px-6 py-4 text-right font-bold text-gray-900 text-lg">
-                    {formatCurrency(offer.totalAmount)}
+                    {formatCurrency(offer.totalAmount ?? offer.grossSum ?? 0)}
                   </td>
                 </tr>
               </tfoot>

@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ProductService } from '../../application/services/ProductService';
 import type { UUID } from '../../shared/types';

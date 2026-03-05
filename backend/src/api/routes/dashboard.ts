@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import type { OrderStatus, OfferStatus } from '../../shared/types';
+import type { OfferStatus } from '../../shared/types';
 import { requireUnlocked } from '../middleware/auth';
 
 export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {

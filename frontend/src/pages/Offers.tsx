@@ -121,7 +121,7 @@ export default function Offers() {
                     <td className="px-6 py-4 font-medium">{offer.customerName || 'Unbekannt'}</td>
                     <td className="px-6 py-4 text-gray-600">{formatDate(offer.createdAt)}</td>
                     <td className="px-6 py-4"><StatusBadge type="offer" status={offer.status} /></td>
-                    <td className="px-6 py-4 text-right font-medium">{formatCurrency(offer.totalAmount)}</td>
+                    <td className="px-6 py-4 text-right font-medium">{formatCurrency(offer.totalAmount ?? offer.grossSum ?? 0)}</td>
                     <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                       <Link to={`/offers/${offer.id}`} className="p-2 text-gray-400 hover:text-primary-600 inline-block">
                         <Eye className="w-4 h-4" />

@@ -28,7 +28,7 @@ export class PDFService {
     }
   }
 
-  async generateInvoicePDF(invoice: Invoice): Promise<PDFGenerationResult> {
+  async generateInvoicePDF(invoice: Invoice, taxNumber?: string, deliveryNote?: string): Promise<PDFGenerationResult> {
     const customer = await this.customerRepo.findById(invoice.customerId);
     const fileName = `invoice-${invoice.invoiceNumber}.pdf`;
     const filePath = path.join(this.outputDir, fileName);
@@ -85,7 +85,15 @@ export class PDFService {
     doc.fontSize(12).text(`Gesamtbetrag: ${this.formatCurrency(invoice.totalGross)}`, 350, y + 35);
 
     // Footer
-    doc.fontSize(8).text('Diese Rechnung wurde maschinell erstellt und ist ohne Unterschrift gültig.', 50, 700);
+    let footerY = 680;
+    if (deliveryNote) {
+      doc.fontSize(8).text(`Lieferhinweis: ${deliveryNote}`, 50, footerY, { width: 400 });
+      footerY += 25;
+    }
+    doc.fontSize(8).text('Diese Rechnung wurde maschinell erstellt und ist ohne Unterschrift gültig.', 50, footerY);
+    if (taxNumber) {
+      doc.text(`Steuernummer: ${taxNumber}`, 400, footerY);
+    }
 
     doc.end();
 
@@ -97,7 +105,7 @@ export class PDFService {
     });
   }
 
-  async generateOfferPDF(offer: Offer): Promise<PDFGenerationResult> {
+  async generateOfferPDF(offer: Offer, taxNumber?: string, deliveryNote?: string): Promise<PDFGenerationResult> {
     const customer = await this.customerRepo.findById(offer.customerId);
     const fileName = `offer-${offer.offerNumber}.pdf`;
     const filePath = path.join(this.outputDir, fileName);
@@ -154,7 +162,15 @@ export class PDFService {
     doc.fontSize(12).text(`Gesamtbetrag: ${this.formatCurrency(offer.grossSum)}`, 320, y + 35);
 
     // Footer
-    doc.fontSize(8).text('Dieses Angebot ist freibleibend. Wir freuen uns auf Ihren Auftrag.', 50, 700);
+    let footerY = 680;
+    if (deliveryNote) {
+      doc.fontSize(8).text(`Lieferhinweis: ${deliveryNote}`, 50, footerY, { width: 400 });
+      footerY += 25;
+    }
+    doc.fontSize(8).text('Dieses Angebot ist freibleibend. Wir freuen uns auf Ihren Auftrag.', 50, footerY);
+    if (taxNumber) {
+      doc.text(`Steuernummer: ${taxNumber}`, 400, footerY);
+    }
 
     doc.end();
 
@@ -166,7 +182,7 @@ export class PDFService {
     });
   }
 
-  async generateOrderPDF(order: Order, sellerAddress: string): Promise<PDFGenerationResult> {
+  async generateOrderPDF(order: Order, sellerAddress: string, taxNumber?: string, deliveryNote?: string): Promise<PDFGenerationResult> {
     const customer = await this.customerRepo.findById(order.customerId);
     const fileName = `order-${order.orderNumber}.pdf`;
     const filePath = path.join(this.outputDir, fileName);
@@ -218,7 +234,15 @@ export class PDFService {
     doc.fontSize(12).text(`Gesamtbetrag: ${this.formatCurrency(order.grossSum)}`, 320, y + 35);
 
     // Footer
-    doc.fontSize(8).text('Wir danken für Ihren Auftrag!', 50, 700);
+    let footerY = 680;
+    if (deliveryNote) {
+      doc.fontSize(8).text(`Lieferhinweis: ${deliveryNote}`, 50, footerY, { width: 400 });
+      footerY += 25;
+    }
+    doc.fontSize(8).text('Wir danken für Ihren Auftrag!', 50, footerY);
+    if (taxNumber) {
+      doc.text(`Steuernummer: ${taxNumber}`, 400, footerY);
+    }
 
     doc.end();
 
