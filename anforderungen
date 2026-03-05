@@ -7,7 +7,8 @@ Das template muss über das frontend veränderbar sein. hierzu muss ein template
 
 verknüpfen mit einem kalender bzw kalenderplanungstool um die produktion abschätzen zu können.
 
-qr code für auftrage anlegen. dabei das pdf für den kunden über einen link verfügbar machen. der link muss eine lange zufällige nummer enthalten und ein pw, da es in der db extra für den kunden verschlüsselt gespeichert wird. das pdf soll dann mit den passenden werten aus der db generiert werden. es soll zudem den qr code mit den vollständigen link dorthin enthalten.
+
+qr code für auftrage anlegen. dabei das pdf für den kunden über einen link verfügbar machen. der link muss eine lange zufällige nummer enthalten und ein pw, da es in der db extra für den kunden verschlüsselt gespeichert wird. das pdf soll dann mit den passenden werten aus der db generiert werden. es soll zudem den qr code mit den vollständigen link dorthin enthalten. später wenn die Rechnung erstellt wurde soll über den selben link die Rechnung aufrufbar sein. hierzu soll auch gemerkt werden wann das element angelegt wurde. es soll auch gemerkt werden wann das element das letzte mal aufgerufen wurde. dies soll in der db gespeichert werden. zudem soll der link max 14 tage verfügbar sein. 
 
 
 steuernummer (eintellungen einstellbar) muss auf jedem dokument erscheinen. sowie ein lieferhinweis wegen ladungssicherung nach vde. der kunde ist für die ladungssicherung verantwortlich.
