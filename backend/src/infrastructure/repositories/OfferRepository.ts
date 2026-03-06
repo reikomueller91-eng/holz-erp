@@ -21,15 +21,19 @@ interface OfferRow {
   status: string;
   date: string;
   valid_until?: string;
+  desired_completion_date?: string;
   inquiry_source: string;
   inquiry_contact?: string;
-  customer_id: string;
+  customer_id: string | null;
   encrypted_data: string;
   created_at: string;
   updated_at: string;
   created_by?: string;
   updated_by?: string;
   pdf_path?: string;
+  customer_response?: string;
+  customer_response_at?: string;
+  customer_comment?: string;
 }
 
 interface OfferEncryptedData {
@@ -115,10 +119,11 @@ export class OfferRepository implements IOfferRepository {
 
     this.db.run(
       `INSERT INTO offers (
-        id, offer_number, version, status, date, valid_until,
+        id, offer_number, version, status, date, valid_until, desired_completion_date,
         inquiry_source, inquiry_contact, customer_id, encrypted_data,
-        created_at, updated_at, created_by, updated_by, pdf_path
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        created_at, updated_at, created_by, updated_by, pdf_path,
+        customer_response, customer_response_at, customer_comment
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         offer.id,
         offer.offerNumber,
@@ -126,15 +131,19 @@ export class OfferRepository implements IOfferRepository {
         offer.status,
         offer.date,
         offer.validUntil ?? null,
+        offer.desiredCompletionDate ?? null,
         offer.inquirySource,
         offer.inquiryContact ?? null,
-        offer.customerId,
+        offer.customerId ?? null,
         encryptedData,
         offer.createdAt,
         offer.updatedAt,
         offer.createdBy ?? null,
         offer.updatedBy ?? null,
         offer.pdfPath ?? null,
+        offer.customerResponse ?? null,
+        offer.customerResponseAt ?? null,
+        offer.customerComment ?? null,
       ]
     );
   }
@@ -156,19 +165,29 @@ export class OfferRepository implements IOfferRepository {
         version = ?,
         status = ?,
         valid_until = ?,
+        desired_completion_date = ?,
+        customer_id = ?,
         encrypted_data = ?,
         updated_at = ?,
         updated_by = ?,
-        pdf_path = ?
+        pdf_path = ?,
+        customer_response = ?,
+        customer_response_at = ?,
+        customer_comment = ?
       WHERE id = ?`,
       [
         offer.version,
         offer.status,
         offer.validUntil ?? null,
+        offer.desiredCompletionDate ?? null,
+        offer.customerId ?? null,
         encryptedData,
         offer.updatedAt,
         offer.updatedBy ?? null,
         offer.pdfPath ?? null,
+        offer.customerResponse ?? null,
+        offer.customerResponseAt ?? null,
+        offer.customerComment ?? null,
         offer.id,
       ]
     );
@@ -193,6 +212,7 @@ export class OfferRepository implements IOfferRepository {
       vatAmount: version.vatAmount,
       grossSum: version.grossSum,
       notes: version.notes,
+      desiredCompletionDate: version.desiredCompletionDate,
     });
 
     this.db.run(
@@ -215,10 +235,11 @@ export class OfferRepository implements IOfferRepository {
       id: row.id as UUID,
       offerNumber: row.offer_number,
       version: row.version,
-      customerId: row.customer_id as UUID,
+      customerId: (row.customer_id || undefined) as UUID | undefined,
       status: row.status as OfferStatus,
       date: row.date,
       validUntil: row.valid_until,
+      desiredCompletionDate: row.desired_completion_date,
       inquirySource: row.inquiry_source,
       inquiryContact: row.inquiry_contact,
       sellerAddress: decrypted.sellerAddress,
@@ -229,6 +250,9 @@ export class OfferRepository implements IOfferRepository {
       vatAmount: decrypted.vatAmount,
       grossSum: decrypted.grossSum,
       notes: decrypted.notes,
+      customerResponse: row.customer_response as Offer['customerResponse'],
+      customerResponseAt: row.customer_response_at,
+      customerComment: row.customer_comment,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       createdBy: row.created_by,
@@ -252,6 +276,7 @@ export class OfferRepository implements IOfferRepository {
       vatAmount: decrypted.vatAmount,
       grossSum: decrypted.grossSum,
       notes: decrypted.notes,
+      desiredCompletionDate: decrypted.desiredCompletionDate,
       createdAt: row.created_at,
       createdBy: row.created_by,
     };

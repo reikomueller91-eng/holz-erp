@@ -1,8 +1,77 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Download, Send, CheckCircle, FileText } from 'lucide-react'
+import { ArrowLeft, Download, Send, CheckCircle, FileText, QrCode, Clock, Package, FileCheck, Mail, User, CreditCard, XCircle, AlertTriangle, Truck, Eye } from 'lucide-react'
 import api from '../lib/api'
 import type { Invoice } from '../types'
+
+// Timeline helper functions
+function getTimelineIcon(event: string, _entityType: string) {
+  const size = 'w-3 h-3 text-white'
+  switch (event) {
+    case 'created': return <FileText className={size} />
+    case 'sent': return <Send className={size} />
+    case 'accepted': return <CheckCircle className={size} />
+    case 'rejected': return <XCircle className={size} />
+    case 'converted': return <FileCheck className={size} />
+    case 'in_production': return <Package className={size} />
+    case 'finished': return <CheckCircle className={size} />
+    case 'invoiced': return <CreditCard className={size} />
+    case 'paid': return <CreditCard className={size} />
+    case 'cancelled': return <XCircle className={size} />
+    case 'overdue': return <AlertTriangle className={size} />
+    case 'finalized': return <FileCheck className={size} />
+    case 'pdf_generated': return <FileText className={size} />
+    case 'email_sent': return <Mail className={size} />
+    case 'customer_assigned': return <User className={size} />
+    case 'picked_up': return <Truck className={size} />
+    default: return <Clock className={size} />
+  }
+}
+
+function getTimelineLabel(event: string, entityType: string) {
+  const entityLabel = entityType === 'offer' ? 'Angebot' : entityType === 'order' ? 'Auftrag' : 'Rechnung'
+  switch (event) {
+    case 'created': return `${entityLabel} erstellt`
+    case 'sent': return `${entityLabel} versendet`
+    case 'accepted': return `${entityLabel} angenommen`
+    case 'rejected': return `${entityLabel} abgelehnt`
+    case 'converted': return `${entityLabel} umgewandelt`
+    case 'in_production': return 'In Produktion'
+    case 'finished': return `${entityLabel} abgeschlossen`
+    case 'invoiced': return 'Rechnung erstellt'
+    case 'paid': return `${entityLabel} bezahlt`
+    case 'cancelled': return `${entityLabel} storniert`
+    case 'overdue': return `${entityLabel} überfällig`
+    case 'finalized': return `${entityLabel} finalisiert`
+    case 'pdf_generated': return `${entityLabel}-PDF generiert`
+    case 'email_sent': return `${entityLabel} per E-Mail gesendet`
+    case 'customer_assigned': return 'Kunde zugeordnet'
+    case 'picked_up': return 'Abgeholt'
+    default: return `${entityLabel}: ${event}`
+  }
+}
+
+function getTimelineColor(event: string) {
+  switch (event) {
+    case 'created': return 'bg-blue-500'
+    case 'sent': return 'bg-indigo-500'
+    case 'accepted': return 'bg-green-500'
+    case 'rejected': return 'bg-red-500'
+    case 'converted': return 'bg-purple-500'
+    case 'in_production': return 'bg-yellow-500'
+    case 'finished': return 'bg-green-600'
+    case 'invoiced': return 'bg-blue-600'
+    case 'paid': return 'bg-green-700'
+    case 'cancelled': return 'bg-red-600'
+    case 'overdue': return 'bg-orange-500'
+    case 'finalized': return 'bg-teal-500'
+    case 'pdf_generated': return 'bg-gray-500'
+    case 'email_sent': return 'bg-cyan-500'
+    case 'customer_assigned': return 'bg-violet-500'
+    case 'picked_up': return 'bg-emerald-500'
+    default: return 'bg-gray-400'
+  }
+}
 
 export default function InvoiceDetail() {
   const { id } = useParams<{ id: string }>()
@@ -18,6 +87,45 @@ export default function InvoiceDetail() {
 
   const invoice = data?.invoice
   const customer = data?.customer
+
+  // Fetch QR link for the invoice (available after PDF generation)
+  const { data: qrData } = useQuery({
+    queryKey: ['invoice-qr', id],
+    queryFn: async () => {
+      const res = await api.get<{ secureLink: string | null; qrDataUrl: string | null }>(`/invoices/${id}/qrlink`)
+      return res.data
+    },
+    enabled: !!invoice?.pdfPath,
+  })
+
+  // Fetch timeline
+  const { data: timelineData } = useQuery({
+    queryKey: ['invoice-timeline', id],
+    queryFn: async () => {
+      const res = await api.get(`/invoices/${id}/timeline`)
+      return res.data as {
+        timeline: Array<{
+          id: string
+          entityType: 'offer' | 'order' | 'invoice'
+          entityId: string
+          event: string
+          details?: string
+          createdAt: string
+        }>
+        accessLogs: Array<{
+          id: string
+          action: string
+          ipAddress: string
+          userAgent: string
+          createdAt: string
+        }>
+        offerInfo: any
+        orderInfo: any
+        customerInfo: any
+      }
+    },
+    enabled: !!invoice,
+  })
 
   const emailMutation = useMutation({
     mutationFn: () => api.post(`/invoices/${id}/email`),
@@ -49,7 +157,10 @@ export default function InvoiceDetail() {
 
   const generatePdfMutation = useMutation({
     mutationFn: () => api.post(`/invoices/${id}/pdf`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoice', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoice', id] })
+      queryClient.invalidateQueries({ queryKey: ['invoice-qr', id] })
+    },
   })
 
   if (!invoice) return <div className="p-8 text-center">Laden...</div>
@@ -234,8 +345,137 @@ export default function InvoiceDetail() {
               )}
             </div>
           </div>
+
+          {/* QR Code Section */}
+          {qrData?.qrDataUrl && (
+            <div className="card p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <QrCode className="w-5 h-5 text-gray-500" />
+                <h2 className="text-lg font-semibold">QR-Code</h2>
+              </div>
+              <div className="flex flex-col items-center">
+                <img
+                  src={qrData.qrDataUrl}
+                  alt="Rechnungs-QR-Code"
+                  className="w-40 h-40"
+                />
+                <p className="text-xs text-gray-500 mt-2 text-center">
+                  Diesen QR-Code scannen, um die Rechnung online aufzurufen.
+                </p>
+              </div>
+              {qrData?.secureLink && (
+                <div className="mt-3">
+                  <p className="text-xs text-gray-500 mb-1">Direktlink:</p>
+                  <div className="bg-gray-50 rounded p-2 break-all text-xs text-gray-700 font-mono select-all">
+                    {qrData.secureLink}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Timeline / Rechnungshistorie */}
+      {timelineData && timelineData.timeline && timelineData.timeline.length > 0 && (
+        <div className="card">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-gray-500" />
+              <h2 className="text-lg font-semibold">Rechnungshistorie</h2>
+            </div>
+            {/* Context links */}
+            <div className="flex items-center gap-4 mt-2 text-sm">
+              {timelineData.customerInfo && (
+                <Link to={`/customers/${timelineData.customerInfo.id}`} className="text-primary-600 hover:underline flex items-center gap-1">
+                  <User className="w-3.5 h-3.5" />
+                  {timelineData.customerInfo.name}
+                </Link>
+              )}
+              {timelineData.offerInfo && (
+                <Link to={`/offers/${timelineData.offerInfo.id}`} className="text-primary-600 hover:underline flex items-center gap-1">
+                  <FileText className="w-3.5 h-3.5" />
+                  Angebot {timelineData.offerInfo.offerNumber}
+                </Link>
+              )}
+              {timelineData.orderInfo && (
+                <Link to={`/orders/${timelineData.orderInfo.id}`} className="text-primary-600 hover:underline flex items-center gap-1">
+                  <Package className="w-3.5 h-3.5" />
+                  Auftrag {timelineData.orderInfo.orderNumber}
+                </Link>
+              )}
+            </div>
+          </div>
+          <div className="p-6">
+            <div className="relative">
+              {/* Timeline line */}
+              <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200" />
+              <div className="space-y-4">
+                {timelineData.timeline.map((entry) => {
+                  const icon = getTimelineIcon(entry.event, entry.entityType)
+                  const label = getTimelineLabel(entry.event, entry.entityType)
+                  const colorClass = getTimelineColor(entry.event)
+                  const details = entry.details ? (() => { try { return JSON.parse(entry.details!) } catch { return null } })() : null
+
+                  return (
+                    <div key={entry.id} className="relative flex items-start gap-3 pl-10">
+                      <div className={`absolute left-2 w-5 h-5 rounded-full flex items-center justify-center ${colorClass}`}>
+                        {icon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900">{label}</p>
+                        {details && (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {details.offerNumber && `Angebot: ${details.offerNumber}`}
+                            {details.orderNumber && `Auftrag: ${details.orderNumber}`}
+                            {details.invoiceNumber && `Rechnung: ${details.invoiceNumber}`}
+                            {details.to && ` → ${details.to}`}
+                            {details.customerName && ` – ${details.customerName}`}
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400 whitespace-nowrap">
+                        {new Date(entry.createdAt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Access Log (Zugriffsverlauf) */}
+          {timelineData.accessLogs && timelineData.accessLogs.length > 0 && (
+            <div className="p-6 border-t border-gray-200">
+              <div className="flex items-center gap-2 mb-4">
+                <Eye className="w-4 h-4 text-gray-500" />
+                <h3 className="text-sm font-semibold text-gray-700">Zugriffsverlauf (Kundenportal)</h3>
+              </div>
+              <div className="space-y-2">
+                {timelineData.accessLogs.map((log) => {
+                  const actionLabels: Record<string, string> = {
+                    view_offer: '👁 Angebot angesehen',
+                    download_pdf: '📄 PDF heruntergeladen',
+                    respond_accepted: '✅ Angebot angenommen',
+                    respond_rejected: '❌ Angebot abgelehnt',
+                  }
+                  return (
+                    <div key={log.id} className="flex items-center justify-between text-xs bg-gray-50 rounded px-3 py-2">
+                      <div>
+                        <span className="font-medium text-gray-700">{actionLabels[log.action] || log.action}</span>
+                        <span className="text-gray-400 ml-2">IP: {log.ipAddress}</span>
+                      </div>
+                      <span className="text-gray-400">
+                        {new Date(log.createdAt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

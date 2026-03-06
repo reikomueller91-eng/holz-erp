@@ -1,19 +1,18 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { IInvoiceRepository } from '../../infrastructure/repositories/InvoiceRepository';
-import { IOrderRepository } from '../../infrastructure/repositories/OrderRepository';
-import { ICustomerRepository } from '../../application/ports/ICustomerRepository';
 import { PDFService } from '../../infrastructure/pdf/PDFService';
-import { transitionOrder } from '../../domain/order/Order';
 import type { Invoice, InvoiceLineItem } from '../../domain/invoice/Invoice';
 import { transitionInvoice, finalizeInvoice, createInvoiceVersion, calcInvoiceTotals, generateInvoiceNumber } from '../../domain/invoice/Invoice';
 import type { InvoiceStatus, UUID } from '../../shared/types';
 import { requireUnlocked } from '../middleware/auth';
 import { generateId } from '../../shared/utils/id';
 import { EmailSenderService } from '../../application/services/EmailSenderService';
+import type { ProductService } from '../../application/services/ProductService';
+import { DEFAULT_SELLER_ADDRESS } from '../../shared/constants';
 import fs from 'fs';
 import path from 'path';
-import type { DocumentLinkService } from '../../application/services/DocumentLinkService';
+// @ts-ignore - qrcode has no type declarations
+import QRCode from 'qrcode';
 
 const InvoiceItemSchema = z.object({
   orderItemId: z.string().optional(),
@@ -25,7 +24,8 @@ const InvoiceItemSchema = z.object({
 });
 
 const CreateInvoiceSchema = z.object({
-  orderId: z.string(),
+  orderId: z.string().optional(),
+  customerId: z.string().optional(),
   sellerAddress: z.string().min(1),
   customerAddress: z.string().min(1),
   items: z.array(InvoiceItemSchema).min(1),
@@ -47,13 +47,10 @@ const ChangeStatusSchema = z.object({
 });
 
 export async function invoiceRoutes(fastify: FastifyInstance) {
-  const invoiceRepo = fastify.invoiceRepository as IInvoiceRepository;
-  const orderRepo = fastify.orderRepository as IOrderRepository;
-  const customerRepo = fastify.customerRepository as ICustomerRepository;
-  const configRepo = fastify.systemConfigRepository as any;
-  const documentLinkService = fastify.documentLinkService as DocumentLinkService;
+  const { invoiceRepository: invoiceRepo, orderRepository: orderRepo, customerRepository: customerRepo,
+          systemConfigRepository: configRepo, documentLinkService, documentHistoryRepository: historyRepo } = fastify;
   const pdfService = new PDFService(customerRepo);
-  const emailService = new EmailSenderService(configRepo);
+  const emailService = new EmailSenderService(configRepo, fastify.cryptoService);
 
   // GET /api/invoices - List all invoices
   fastify.get<{ Querystring: { status?: string; customerId?: string; limit?: string; offset?: string } }>(
@@ -69,7 +66,16 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
         offset: offset ? parseInt(offset) : undefined,
       });
 
-      return { invoices };
+      // Enrich with customer name
+      const enriched = await Promise.all(invoices.map(async (invoice) => {
+        const customer = await customerRepo.findById(invoice.customerId);
+        return {
+          ...invoice,
+          customerName: customer?.name || 'Unbekannt',
+        };
+      }));
+
+      return { invoices: enriched };
     }
   );
 
@@ -143,6 +149,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
           anyInvoice.pdfPath,
           `Rechnung-${invoice.invoiceNumber}.pdf`
         );
+        historyRepo.log('invoice', invoice.id, 'email_sent', { to: toEmail });
         return { message: 'Email sent successfully' };
       } catch (error: any) {
         return reply.status(500).send({ error: error.message || 'Failed to send email' });
@@ -161,7 +168,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       }
 
       const customer = await customerRepo.findById(order.customerId);
-      const sellerAddress = await configRepo.getValue('seller_address') || 'HolzERP Musterfirma\nMusterstraße 1\n12345 Musterstadt';
+      const sellerAddress = await configRepo.getValue('seller_address') || DEFAULT_SELLER_ADDRESS;
 
       const invoiceCount = (await invoiceRepo.findAll()).length;
       const invoiceNumber = generateInvoiceNumber(invoiceCount);
@@ -174,18 +181,27 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
         customerAddrStr = `${customer.name}\n${street}${city}`.trim();
       }
 
-      const lineItems: InvoiceLineItem[] = order.items.map((item, index) => ({
-        id: generateId() as UUID,
-        invoiceId: '' as UUID,
-        orderItemId: item.id,
-        productId: item.productId,
-        description: `Pos ${index + 1}: ${item.widthMm}x${item.heightMm}mm, ${item.lengthMm}mm lang`,
-        quantity: item.quantity,
-        unit: 'Stk',
-        unitPrice: item.pricePerM2,
-        totalPrice: item.netTotal,
-        sortOrder: index,
-      }));
+      // Order prices (pricePerM2, netTotal) are already GROSS (Brutto) values.
+      // Invoice calcInvoiceTotals expects NET values and adds VAT on top.
+      // So we must convert order gross → net before creating invoice line items.
+      const vatFactor = 1 + order.vatPercent / 100;
+
+      const lineItems: InvoiceLineItem[] = order.items.map((item, index) => {
+        const netUnitPrice = Math.round((item.pricePerM2 / vatFactor) * 100) / 100;
+        const netTotal = Math.round((item.netTotal / vatFactor) * 100) / 100;
+        return {
+          id: generateId() as UUID,
+          invoiceId: '' as UUID,
+          orderItemId: item.id,
+          productId: item.productId,
+          description: `Pos ${index + 1}: ${item.widthMm}x${item.heightMm}mm, ${item.lengthMm}mm lang`,
+          quantity: item.quantity,
+          unit: 'Stk',
+          unitPrice: netUnitPrice,
+          totalPrice: netTotal,
+          sortOrder: index,
+        };
+      });
 
       const totals = calcInvoiceTotals(lineItems, order.vatPercent);
 
@@ -209,23 +225,39 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       lineItems.forEach(item => item.invoiceId = invoice.id);
       await invoiceRepo.save(invoice);
 
-      const updatedOrder = transitionOrder(order, 'invoiced');
-      await orderRepo.update(updatedOrder);
+      // Log history
+      historyRepo.log('invoice', invoice.id, 'created', { invoiceNumber: invoice.invoiceNumber, fromOrderId: order.id });
 
       return { invoice };
     }
   );
 
-  // POST /api/invoices - Create invoice
+  // POST /api/invoices - Create invoice (with or without order)
   fastify.post<{ Body: z.infer<typeof CreateInvoiceSchema> }>(
     '/invoices',
     { preHandler: requireUnlocked },
     async (request) => {
       const data = CreateInvoiceSchema.parse(request.body);
 
-      const order = await orderRepo.findById(data.orderId as UUID);
-      if (!order) {
-        return { error: 'Order not found' };
+      let customerId: UUID | undefined;
+      let order = null;
+
+      if (data.orderId) {
+        // Invoice from order
+        order = await orderRepo.findById(data.orderId as UUID);
+        if (!order) {
+          return { error: 'Order not found' };
+        }
+        customerId = order.customerId;
+      } else if (data.customerId) {
+        // Direct invoice with customer
+        const customer = await customerRepo.findById(data.customerId as UUID);
+        if (!customer) {
+          return { error: 'Customer not found' };
+        }
+        customerId = data.customerId as UUID;
+      } else {
+        return { error: 'Either orderId or customerId must be provided' };
       }
 
       const invoiceCount = (await invoiceRepo.findAll()).length;
@@ -250,12 +282,12 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
         id: generateId() as UUID,
         invoiceNumber,
         version: 1,
-        orderId: data.orderId as UUID,
-        customerId: order.customerId,
+        orderId: data.orderId ? data.orderId as UUID : undefined,
+        customerId: customerId!,
         status: 'draft',
         date: new Date().toISOString().split('T')[0],
         dueDate: data.dueDate,
-        sellerAddress: data.sellerAddress || await configRepo.getValue('seller_address') || 'HolzERP Musterfirma\nMusterstraße 1\n12345 Musterstadt',
+        sellerAddress: data.sellerAddress || await configRepo.getValue('seller_address') || DEFAULT_SELLER_ADDRESS,
         customerAddress: data.customerAddress || 'Keine Adresse',
         lineItems,
         ...totals,
@@ -268,6 +300,30 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       lineItems.forEach(item => item.invoiceId = invoice.id);
 
       await invoiceRepo.save(invoice);
+      historyRepo.log('invoice', invoice.id, 'created', { invoiceNumber: invoice.invoiceNumber, orderId: data.orderId || null, customerId, direct: !data.orderId });
+
+      // Track price updates for products used in direct invoices
+      if (!data.orderId) {
+        const productService = fastify.productService as ProductService;
+        for (const item of data.items) {
+          if (item.productId) {
+            try {
+              const priceHistory = await productService.getPriceHistory(item.productId as UUID);
+              const currentPrice = priceHistory[0]?.pricePerM2 ?? 0;
+              if (currentPrice !== item.unitPrice && item.unitPrice > 0) {
+                await productService.addPrice({
+                  productId: item.productId as UUID,
+                  pricePerM2: item.unitPrice,
+                  effectiveFrom: new Date().toISOString(),
+                  reason: `Preisanpassung über Direktrechnung ${invoice.invoiceNumber}`,
+                });
+              }
+            } catch (err) {
+              console.error(`Failed to update price history for product ${item.productId}:`, err);
+            }
+          }
+        }
+      }
 
       return { invoice };
     }
@@ -346,6 +402,25 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
       invoice = transitionInvoice(invoice, data.status as InvoiceStatus);
       await invoiceRepo.update(invoice);
+      historyRepo.log('invoice', invoice.id, data.status as any, { invoiceNumber: invoice.invoiceNumber });
+
+      return { invoice };
+    }
+  );
+
+  // POST /api/invoices/:id/mark-paid - Mark invoice as paid
+  fastify.post<{ Params: { id: string } }>(
+    '/invoices/:id/mark-paid',
+    { preHandler: requireUnlocked },
+    async (request) => {
+      let invoice = await invoiceRepo.findById(request.params.id as UUID);
+      if (!invoice) {
+        return { error: 'Invoice not found' };
+      }
+
+      invoice = transitionInvoice(invoice, 'paid');
+      await invoiceRepo.update(invoice);
+      historyRepo.log('invoice', invoice.id, 'paid', { invoiceNumber: invoice.invoiceNumber });
 
       return { invoice };
     }
@@ -367,6 +442,7 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
       invoice = finalizeInvoice(invoice);
       await invoiceRepo.update(invoice);
+      historyRepo.log('invoice', invoice.id, 'finalized', { invoiceNumber: invoice.invoiceNumber });
 
       return { invoice };
     }
@@ -388,24 +464,36 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
         // Manage Document Link
         const mainDomain = await configRepo.getValue('main_domain') || 'http://localhost:3000';
+        const validityDaysStr = await configRepo.getValue('offer_link_validity_days');
+        const validityDays = validityDaysStr ? parseInt(validityDaysStr, 10) : 14;
         let docLink = null;
         let secureLink = '';
 
         if (invoice.orderId) {
-          // Look up by orderId (which could have come from offerId)
+          // First try by orderId (which may have been set during offer→order conversion)
           docLink = await documentLinkService.getExistingLink({ orderId: invoice.orderId as UUID });
+
+          // If not found by orderId, try to trace back via offer
+          if (!docLink) {
+            const order = await orderRepo.findById(invoice.orderId as UUID);
+            if (order?.offerId) {
+              docLink = await documentLinkService.getExistingLink({ offerId: order.offerId as UUID });
+            }
+          }
         }
 
         if (!docLink) {
           const { link, rawPassword } = await documentLinkService.createLink({ invoiceId: invoice.id });
           docLink = link;
-          secureLink = `${mainDomain.replace(/\/$/, '')}/api/public/documents/${docLink.token}?pw=${rawPassword}`;
+          secureLink = `${mainDomain.replace(/\/$/, '')}/public/offer/${docLink.token}?pw=${rawPassword}`;
           await documentLinkService.saveEncryptedUrl(docLink, secureLink);
         } else {
-          // Tie this existing link to the new Invoice!
+          // Tie this existing link to the new Invoice
           docLink.invoiceId = invoice.id;
-          // Always refresh expiration to +14 days from Invoice generation
-          await documentLinkService.extendExpiration(docLink, new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString());
+          // Force-reactivate even if expired (invoice must be accessible!)
+          const newExpiration = new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000).toISOString();
+          docLink.expiresAt = newExpiration;
+          await documentLinkService.forceUpdateLink(docLink);
 
           const decrypted = documentLinkService.getDecryptedUrl(docLink);
           if (decrypted) {
@@ -414,18 +502,40 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
             console.error('Could not decrypt existing document link URL. Re-generating...');
             const { link, rawPassword } = await documentLinkService.createLink({ invoiceId: invoice.id });
             docLink = link;
-            secureLink = `${mainDomain.replace(/\/$/, '')}/api/public/documents/${docLink.token}?pw=${rawPassword}`;
+            secureLink = `${mainDomain.replace(/\/$/, '')}/public/offer/${docLink.token}?pw=${rawPassword}`;
             await documentLinkService.saveEncryptedUrl(docLink, secureLink);
           }
         }
 
         const documentLinkUrl = secureLink;
 
-        const { filePath, fileName } = await pdfService.generateInvoicePDF(invoice, taxNumber, deliveryNote, documentLinkUrl);
+        const logoPath = await configRepo.getValue('logo_path') || undefined;
+        const { filePath, fileName } = await pdfService.generateInvoicePDF(invoice, taxNumber, deliveryNote, documentLinkUrl, logoPath);
+
+        // Store public data snapshot for customer portal (invoice grossSum for correct display)
+        if (docLink) {
+          const existingPublicData = docLink.publicData ? JSON.parse(docLink.publicData) : {};
+          const publicData = {
+            ...existingPublicData,
+            invoice: {
+              invoiceId: invoice.id,
+              invoiceNumber: invoice.invoiceNumber,
+              date: invoice.date,
+              dueDate: invoice.dueDate,
+              netSum: invoice.totalNet,
+              vatPercent: invoice.vatPercent,
+              vatAmount: invoice.vatAmount,
+              grossSum: invoice.totalGross,
+              pdfAvailable: true,
+            },
+          };
+          await documentLinkService.savePublicData(docLink, publicData);
+        }
 
         // Update invoice with PDF path
         const updatedInvoice = { ...invoice, pdfPath: filePath };
         await invoiceRepo.update(updatedInvoice);
+        historyRepo.log('invoice', invoice.id, 'pdf_generated', { fileName });
 
         return {
           message: 'PDF generated successfully',
@@ -456,6 +566,151 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       }
 
       return { version };
+    }
+  );
+
+  // GET /api/invoices/:id/qrlink - Get the secure link for the invoice QR code
+  fastify.get<{ Params: { id: string } }>(
+    '/invoices/:id/qrlink',
+    { preHandler: requireUnlocked },
+    async (request) => {
+      // Don't show QR code if no host/domain is configured
+      const mainDomain = await configRepo.getValue('main_domain');
+      if (!mainDomain) {
+        return { secureLink: null, qrDataUrl: null };
+      }
+
+      const invoice = await invoiceRepo.findById(request.params.id as UUID);
+      if (!invoice) {
+        return { error: 'Invoice not found' };
+      }
+
+      // Try to find the document link for this invoice
+      let docLink = await documentLinkService.getExistingLink({ invoiceId: invoice.id });
+
+      if (!docLink && invoice.orderId) {
+        docLink = await documentLinkService.getExistingLink({ orderId: invoice.orderId as UUID });
+        if (!docLink) {
+          const order = await orderRepo.findById(invoice.orderId as UUID);
+          if (order?.offerId) {
+            docLink = await documentLinkService.getExistingLink({ offerId: order.offerId as UUID });
+          }
+        }
+      }
+
+      if (!docLink) {
+        return { secureLink: null, qrDataUrl: null };
+      }
+
+      const decrypted = documentLinkService.getDecryptedUrl(docLink);
+      if (!decrypted) {
+        return { secureLink: null, qrDataUrl: null };
+      }
+
+      let qrDataUrl: string | null = null;
+      try {
+        qrDataUrl = await QRCode.toDataURL(decrypted, { width: 200, margin: 1 });
+      } catch { /* ignore */ }
+
+      return { secureLink: decrypted, qrDataUrl };
+    }
+  );
+
+  // GET /api/invoices/:id/timeline - Full history timeline (offer → order → invoice)
+  fastify.get<{ Params: { id: string } }>(
+    '/invoices/:id/timeline',
+    { preHandler: requireUnlocked },
+    async (request) => {
+      const invoice = await invoiceRepo.findById(request.params.id as UUID);
+      if (!invoice) {
+        return { error: 'Invoice not found' };
+      }
+
+      const timeline = await historyRepo.getTimeline(invoice.id);
+
+      // Also include access logs from the document link
+      let accessLogs: Array<{ id: string; action: string; ipAddress: string; userAgent: string; createdAt: string }> = [];
+      const db = fastify.db;
+
+      // Find document link for this invoice (or linked offer/order)
+      let docLink = await documentLinkService.getExistingLink({ invoiceId: invoice.id });
+      if (!docLink && invoice.orderId) {
+        docLink = await documentLinkService.getExistingLink({ orderId: invoice.orderId as UUID });
+        if (!docLink) {
+          const order = await orderRepo.findById(invoice.orderId as UUID);
+          if (order?.offerId) {
+            docLink = await documentLinkService.getExistingLink({ offerId: order.offerId as UUID });
+          }
+        }
+      }
+
+      if (docLink) {
+        const logs = db.query<{ id: string; action: string; ip_address: string; user_agent: string; created_at: string }>(
+          `SELECT id, action, ip_address, user_agent, created_at FROM link_access_log WHERE link_id = ? ORDER BY created_at ASC`,
+          [docLink.id]
+        );
+        accessLogs = logs.map(log => ({
+          id: log.id,
+          action: log.action,
+          ipAddress: log.ip_address,
+          userAgent: log.user_agent,
+          createdAt: log.created_at,
+        }));
+      }
+
+      // Also gather context: linked offer/order info
+      let offerInfo: any = null;
+      let orderInfo: any = null;
+
+      if (invoice.orderId) {
+        const order = await orderRepo.findById(invoice.orderId as UUID);
+        if (order) {
+          orderInfo = {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            status: order.status,
+            createdAt: order.createdAt,
+            finishedAt: order.finishedAt,
+          };
+
+          if (order.offerId) {
+            const offer = await fastify.offerRepository.findById(order.offerId as UUID);
+            if (offer) {
+              offerInfo = {
+                id: offer.id,
+                offerNumber: offer.offerNumber,
+                status: offer.status,
+                date: offer.date,
+                createdAt: offer.createdAt,
+                customerResponse: offer.customerResponse,
+                customerResponseAt: offer.customerResponseAt,
+              };
+            }
+          }
+        }
+      }
+
+      // Get customer info
+      const customer = await customerRepo.findById(invoice.customerId);
+      const customerInfo = customer ? {
+        id: customer.id,
+        name: customer.name,
+      } : null;
+
+      return {
+        timeline,
+        accessLogs,
+        offerInfo,
+        orderInfo,
+        customerInfo,
+        invoice: {
+          id: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          status: invoice.status,
+          createdAt: invoice.createdAt,
+          paidAt: invoice.paidAt,
+        },
+      };
     }
   );
 }

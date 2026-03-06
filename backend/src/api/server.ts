@@ -27,8 +27,11 @@ import { dashboardRoutes } from './routes/dashboard';
 import { buildSettingsRoutes } from './routes/settings';
 import { systemRoutes } from './routes/system';
 import { publicRoutes } from './routes/public';
+import { notificationRoutes } from './routes/notifications';
 import { DocumentLinkRepository } from '../infrastructure/repositories/DocumentLinkRepository';
 import { DocumentLinkService } from '../application/services/DocumentLinkService';
+import { NotificationRepository } from '../infrastructure/repositories/NotificationRepository';
+import { DocumentHistoryRepository } from '../infrastructure/repositories/DocumentHistoryRepository';
 import { HolzError } from '../shared/errors';
 import { logger } from '../shared/utils/logger';
 import { ZodError } from 'zod';
@@ -57,6 +60,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const invoiceRepository = new InvoiceRepository(db, cryptoService);
   const systemConfigRepository = new SystemConfigRepository(db);
   const documentLinkRepository = new DocumentLinkRepository(db);
+  const notificationRepository = new NotificationRepository(db);
+  const documentHistoryRepository = new DocumentHistoryRepository(db);
 
   // ─── Application Services ──────────────────────────────────────
   const customerService = new CustomerService(customerRepository);
@@ -97,6 +102,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   server.decorate('invoiceRepository', invoiceRepository);
   server.decorate('systemConfigRepository', systemConfigRepository);
   server.decorate('documentLinkService', documentLinkService);
+  server.decorate('notificationRepository', notificationRepository);
+  server.decorate('documentHistoryRepository', documentHistoryRepository);
 
   // ─── Routes ───────────────────────────────────────────────────
   server.register(async (app) => {
@@ -110,6 +117,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     await invoiceRoutes(app);
     await dashboardRoutes(app, {});
     await systemRoutes(app);
+    await notificationRoutes(app);
     app.register(buildSettingsRoutes(systemConfigRepository));
   }, { prefix: '/api' });
 

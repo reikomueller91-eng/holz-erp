@@ -1,12 +1,13 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Factory, FileText, Send } from 'lucide-react'
+import { ArrowLeft, Factory, FileText, Send, ChevronRight } from 'lucide-react'
 import api from '../lib/api'
 import type { Order, Invoice } from '../types'
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   const { data: orderData } = useQuery({
     queryKey: ['order', id],
@@ -37,8 +38,14 @@ export default function OrderDetail() {
   })
 
   const createInvoiceMutation = useMutation({
-    mutationFn: () => api.post(`/orders/${id}/invoice`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['order-invoice', id] }),
+    mutationFn: () => api.post<{ invoice: Invoice }>(`/orders/${id}/invoice`),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['order-invoice', id] })
+      const invoiceId = response.data?.invoice?.id
+      if (invoiceId) {
+        navigate(`/invoices/${invoiceId}`)
+      }
+    },
   })
 
   const emailMutation = useMutation({
@@ -58,7 +65,6 @@ export default function OrderDetail() {
   const totalTarget = items.reduce((sum, item) => sum + item.quantity, 0)
   const totalProduced = items.reduce((sum, item) => sum + item.quantityProduced, 0)
   const productionProgress = totalTarget > 0 ? (totalProduced / totalTarget) * 100 : 0
-  const isFinished = order.status === 'finished'
 
   const hasEmail = Boolean(orderData?.customer?.contactInfo?.email)
 
@@ -73,7 +79,7 @@ export default function OrderDetail() {
           <p className="text-gray-500">{customerName}</p>
         </div>
         <div className="flex items-center gap-2">
-          {!invoice && order.status !== 'cancelled' && isFinished && (
+          {!invoice && order.status !== 'cancelled' && (
             <button
               onClick={() => createInvoiceMutation.mutate()}
               disabled={createInvoiceMutation.isPending}
@@ -173,28 +179,55 @@ export default function OrderDetail() {
 
         <div className="space-y-6">
           <div className="card p-6">
+            <h2 className="text-lg font-semibold mb-4">Auftragsstatus</h2>
+            <div className="space-y-2">
+              {[
+                { value: 'new', label: 'Neu', color: 'bg-blue-100 text-blue-800 border-blue-300', activeColor: 'bg-blue-600 text-white' },
+                { value: 'in_production', label: 'In Produktion', color: 'bg-amber-100 text-amber-800 border-amber-300', activeColor: 'bg-amber-600 text-white' },
+                { value: 'finished', label: 'Fertiggestellt', color: 'bg-green-100 text-green-800 border-green-300', activeColor: 'bg-green-600 text-white' },
+                { value: 'picked_up', label: 'Abgeholt', color: 'bg-teal-100 text-teal-800 border-teal-300', activeColor: 'bg-teal-600 text-white' },
+                { value: 'cancelled', label: 'Storniert', color: 'bg-red-100 text-red-800 border-red-300', activeColor: 'bg-red-600 text-white' },
+              ].map((statusOption) => {
+                const isActive = order.status === statusOption.value;
+                return (
+                  <button
+                    key={statusOption.value}
+                    onClick={() => {
+                      if (!isActive) updateStatusMutation.mutate(statusOption.value);
+                    }}
+                    disabled={updateStatusMutation.isPending}
+                    className={`
+                      w-full text-left px-3 py-2 rounded-lg border text-sm font-medium transition-all flex items-center gap-2
+                      ${isActive
+                        ? statusOption.activeColor + ' border-transparent shadow-sm'
+                        : statusOption.color + ' hover:opacity-80 cursor-pointer'
+                      }
+                      ${updateStatusMutation.isPending ? 'opacity-50' : ''}
+                    `}
+                  >
+                    {isActive && <ChevronRight className="w-4 h-4" />}
+                    {statusOption.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="card p-6">
             <h2 className="text-lg font-semibold mb-4">Details</h2>
             <div className="space-y-3">
-              <div>
-                <p className="text-sm text-gray-500">Status</p>
-                <select
-                  value={order.status}
-                  onChange={(e) => updateStatusMutation.mutate(e.target.value)}
-                  className="mt-1 block w-full rounded-lg border-gray-300 text-sm"
-                >
-                  <option value="new">Neu</option>
-                  <option value="pending">Ausstehend</option>
-                  <option value="in_production">In Produktion</option>
-                  <option value="ready">Bereit (Alt)</option>
-                  <option value="finished">Bereit</option>
-                  <option value="delivered">Geliefert</option>
-                  <option value="cancelled">Storniert</option>
-                </select>
-              </div>
               <div>
                 <p className="text-sm text-gray-500">Gesamtbetrag</p>
                 <p className="text-xl font-bold text-gray-900">€{(order.grossSum ?? order.totalAmount ?? 0).toFixed(2)}</p>
               </div>
+              {order.desiredCompletionDate && (
+                <div>
+                  <p className="text-sm text-gray-500">Wunschdatum Fertigstellung</p>
+                  <p className="font-medium text-gray-900">
+                    {new Date(order.desiredCompletionDate).toLocaleDateString('de-DE')}
+                  </p>
+                </div>
+              )}
               <div>
                 <p className="text-sm text-gray-500">Erstellt am</p>
                 <p className="font-medium text-gray-900">

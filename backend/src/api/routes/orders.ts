@@ -1,8 +1,5 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { IOrderRepository } from '../../infrastructure/repositories/OrderRepository';
-import { IOfferRepository } from '../../infrastructure/repositories/OfferRepository';
-import { ICustomerRepository } from '../../application/ports/ICustomerRepository';
 import type { Order, OrderItem } from '../../domain/order/Order';
 import { transitionOrder, updateItemProduction, calcOrderTotals } from '../../domain/order/Order';
 import type { OrderStatus, UUID } from '../../shared/types';
@@ -10,8 +7,8 @@ import { requireUnlocked } from '../middleware/auth';
 import { generateId } from '../../shared/utils/id';
 import { PDFService } from '../../infrastructure/pdf/PDFService';
 import { EmailSenderService } from '../../application/services/EmailSenderService';
+import { DEFAULT_SELLER_ADDRESS } from '../../shared/constants';
 import fs from 'fs';
-import type { DocumentLinkService } from '../../application/services/DocumentLinkService';
 
 // Validation schemas
 const OrderItemSchema = z.object({
@@ -29,6 +26,7 @@ const CreateOrderSchema = z.object({
   customerId: z.string(),
   items: z.array(OrderItemSchema).min(1),
   notes: z.string().optional(),
+  desiredCompletionDate: z.string().optional(),
   vatPercent: z.number().default(19)
 });
 
@@ -38,18 +36,14 @@ const UpdateProductionSchema = z.object({
 });
 
 const ChangeStatusSchema = z.object({
-  status: z.enum(['new', 'in_production', 'finished', 'invoiced', 'paid', 'picked_up', 'cancelled'])
+  status: z.enum(['new', 'in_production', 'finished', 'picked_up', 'cancelled'])
 });
 
 export async function orderRoutes(fastify: FastifyInstance) {
-  const orderRepo = fastify.orderRepository as IOrderRepository;
-  const offerRepo = fastify.offerRepository as IOfferRepository;
-  const customerRepo = fastify.customerRepository as ICustomerRepository;
-  const productService = fastify.productService as any;
-  const configRepo = fastify.systemConfigRepository as any;
-  const documentLinkService = fastify.documentLinkService as DocumentLinkService;
+  const { orderRepository: orderRepo, offerRepository: offerRepo, customerRepository: customerRepo,
+          productService, systemConfigRepository: configRepo, documentLinkService, documentHistoryRepository: historyRepo } = fastify;
   const pdfService = new PDFService(customerRepo);
-  const emailService = new EmailSenderService(configRepo);
+  const emailService = new EmailSenderService(configRepo, fastify.cryptoService);
 
   // GET /api/orders - List all orders
   fastify.get<{ Querystring: { status?: string; customerId?: string; limit?: string; offset?: string } }>(
@@ -109,10 +103,9 @@ export async function orderRoutes(fastify: FastifyInstance) {
       }
 
       const productNames = new Map<string, string>();
-      const productRepo = fastify.productRepository as any;
       for (const pid of productIds) {
         try {
-          const product = await productRepo.findById(pid);
+          const product = await fastify.productRepository.findById(pid as UUID);
           if (product) productNames.set(pid, product.name);
         } catch { /* ignore */ }
       }
@@ -252,6 +245,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
           order.pdfPath,
           `Auftrag-${order.orderNumber}.pdf`
         );
+        historyRepo.log('order', order.id, 'email_sent', { orderNumber: order.orderNumber, to: toEmail });
         return { message: 'Email sent successfully' };
       } catch (error: any) {
         return reply.status(500).send({ error: error.message || 'Failed to send email' });
@@ -318,13 +312,14 @@ export async function orderRoutes(fastify: FastifyInstance) {
         ...totals,
         vatPercent: data.vatPercent,
         productionStatus: 'not_started',
+        desiredCompletionDate: data.desiredCompletionDate,
         notes: data.notes,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
       await orderRepo.save(order);
-
+      historyRepo.log('order', order.id, 'created', { orderNumber: order.orderNumber, customerId: data.customerId, offerId: data.offerId });
       // Generate Secure Link
       const mainDomain = await configRepo.getValue('main_domain') || 'http://localhost:3000';
 
@@ -360,13 +355,14 @@ export async function orderRoutes(fastify: FastifyInstance) {
       const documentLinkUrl = secureLink;
 
       // Generate PDF with the QR Code
-      const sellerAddress = await configRepo.getValue('seller_address') || 'HolzERP Musterfirma\nMusterstraße 1\n12345 Musterstadt';
+      const sellerAddress = await configRepo.getValue('seller_address') || DEFAULT_SELLER_ADDRESS;
       const taxNumber = await configRepo.getValue('tax_number') || undefined;
       const deliveryNote = await configRepo.getValue('delivery_note') || undefined;
       try {
-        const { filePath } = await pdfService.generateOrderPDF(order, sellerAddress, taxNumber, deliveryNote, documentLinkUrl);
+        const { filePath } = await pdfService.generateOrderPDF(order, sellerAddress, taxNumber, deliveryNote, documentLinkUrl, await configRepo.getValue('logo_path') || undefined);
         order.pdfPath = filePath;
         await orderRepo.update(order);
+        historyRepo.log('order', order.id, 'pdf_generated', { orderNumber: order.orderNumber });
       } catch (err) {
         console.error('Failed to generate order PDF', err);
       }
@@ -401,6 +397,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
       // Auto-transition to finished if all items are completed
       if (order.productionStatus === 'completed' && order.status === 'in_production') {
         order = transitionOrder(order, 'finished');
+        historyRepo.log('order', order.id, 'finished', { orderNumber: order.orderNumber });
       }
 
       await orderRepo.update(order);
@@ -423,6 +420,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
 
       order = transitionOrder(order, data.status as OrderStatus);
       await orderRepo.update(order);
+      historyRepo.log('order', order.id, data.status as any, { orderNumber: order.orderNumber });
 
       return { order };
     }

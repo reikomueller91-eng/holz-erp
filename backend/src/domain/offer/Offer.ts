@@ -25,6 +25,7 @@ export interface OfferVersion {
   vatAmount: number;
   grossSum: number;
   notes?: string;
+  desiredCompletionDate?: ISODate;
   createdAt: ISODateTime;
   createdBy?: string;
 }
@@ -33,15 +34,21 @@ export interface Offer {
   id: UUID;
   offerNumber: string;
   version: number;
-  customerId: UUID;
+  customerId?: UUID;
   status: OfferStatus;
   date: ISODate;
   validUntil?: ISODate;
+  desiredCompletionDate?: ISODate;
   inquirySource: string;
   inquiryContact?: string;
 
   // PDF
   pdfPath?: string;
+
+  // Customer response via QR code
+  customerResponse?: 'accepted' | 'rejected';
+  customerResponseAt?: ISODateTime;
+  customerComment?: string;
 
   // Business data
   sellerAddress: string;
@@ -61,7 +68,7 @@ export interface Offer {
 
 // ─── Valid Status Transitions ────────────────────────────────────
 const VALID_TRANSITIONS: Record<OfferStatus, OfferStatus[]> = {
-  draft: ['sent', 'cancelled'],
+  draft: ['sent', 'accepted', 'cancelled'],
   sent: ['accepted', 'rejected', 'cancelled'],
   accepted: ['converted'],
   rejected: [],
@@ -94,6 +101,7 @@ export function createOfferVersion(offer: Offer): OfferVersion {
     vatAmount: offer.vatAmount,
     grossSum: offer.grossSum,
     notes: offer.notes,
+    desiredCompletionDate: offer.desiredCompletionDate,
     createdAt: new Date().toISOString() as ISODateTime,
     createdBy: offer.updatedBy,
   };

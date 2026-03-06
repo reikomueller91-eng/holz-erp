@@ -82,7 +82,7 @@ const MIGRATIONS: Migration[] = [
         valid_until TEXT,
         inquiry_source TEXT NOT NULL,
         inquiry_contact TEXT,
-        customer_id TEXT NOT NULL REFERENCES customers(id),
+        customer_id TEXT REFERENCES customers(id),
         encrypted_data TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -134,7 +134,7 @@ const MIGRATIONS: Migration[] = [
         id TEXT PRIMARY KEY,
         invoice_number TEXT NOT NULL UNIQUE,
         version INTEGER NOT NULL DEFAULT 1,
-        order_id TEXT NOT NULL REFERENCES orders(id),
+        order_id TEXT REFERENCES orders(id),
         customer_id TEXT NOT NULL REFERENCES customers(id),
         status TEXT NOT NULL DEFAULT 'draft',
         encrypted_data TEXT NOT NULL,
@@ -178,7 +178,7 @@ const MIGRATIONS: Migration[] = [
     name: '006_products_calc_method',
     up: `
       ALTER TABLE products ADD COLUMN calc_method TEXT NOT NULL DEFAULT 'm2_sorted';
-      ALTER TABLE products ADD COLUMN volume_divider INTEGER;
+      ALTER TABLE products ADD COLUMN volume_divider REAL;
     `,
   },
   {
@@ -221,6 +221,78 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE document_links DROP COLUMN encrypted_url;
     `,
   },
+  {
+    name: '010_desired_completion_date',
+    up: `
+      ALTER TABLE offers ADD COLUMN desired_completion_date TEXT;
+      ALTER TABLE orders ADD COLUMN desired_completion_date TEXT;
+    `,
+  },
+  {
+    name: '011_notifications_and_offer_response',
+    up: `
+      -- Notifications / Messages
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        reference_type TEXT,
+        reference_id TEXT,
+        is_read INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+      CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
+
+      -- Track customer response via QR code on offers
+      ALTER TABLE offers ADD COLUMN customer_response TEXT;
+      ALTER TABLE offers ADD COLUMN customer_response_at TEXT;
+      ALTER TABLE offers ADD COLUMN customer_comment TEXT;
+    `,
+  },
+  {
+    name: '012_link_access_log',
+    up: `
+      -- Log all access and actions on document links (IP, timestamp, action)
+      CREATE TABLE IF NOT EXISTS link_access_log (
+        id TEXT PRIMARY KEY,
+        link_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        ip_address TEXT,
+        user_agent TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_link_access_log_link_id ON link_access_log(link_id);
+      CREATE INDEX IF NOT EXISTS idx_link_access_log_created_at ON link_access_log(created_at);
+
+      -- Default offer link validity days setting
+      INSERT OR IGNORE INTO system_config (key, value) VALUES ('offer_link_validity_days', '14');
+    `,
+  },
+  {
+    name: '013_document_links_public_data',
+    up: `
+      -- Store unencrypted JSON snapshot of offer/invoice data for public access without system unlock
+      ALTER TABLE document_links ADD COLUMN public_data TEXT;
+    `,
+  },
+  {
+    name: '014_document_history_and_nullable_fks',
+    up: `
+      -- Document history / timeline events with exact timestamps
+      CREATE TABLE IF NOT EXISTS document_history (
+        id TEXT PRIMARY KEY,
+        entity_type TEXT NOT NULL,       -- 'offer', 'order', 'invoice'
+        entity_id TEXT NOT NULL,
+        event TEXT NOT NULL,             -- 'created', 'sent', 'accepted', etc.
+        details TEXT,                    -- optional JSON with extra info
+        created_at TEXT NOT NULL         -- exact ISO timestamp
+      );
+      CREATE INDEX IF NOT EXISTS idx_document_history_entity ON document_history(entity_type, entity_id);
+      CREATE INDEX IF NOT EXISTS idx_document_history_created_at ON document_history(created_at);
+    `,
+  },
 ];
 
 export async function runMigrations(db: IDatabase): Promise<void> {
@@ -243,6 +315,7 @@ export async function runMigrations(db: IDatabase): Promise<void> {
     }
 
     logger.info({ migration: migration.name }, 'Applying migration');
+
     db.transaction(() => {
       db.exec(migration.up);
       db.run('INSERT INTO migrations (name, applied_at) VALUES (?, ?)', [
@@ -250,6 +323,7 @@ export async function runMigrations(db: IDatabase): Promise<void> {
         new Date().toISOString(),
       ]);
     });
+
     logger.info({ migration: migration.name }, 'Migration applied');
   }
 }

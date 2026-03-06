@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { Lock, Shield, Database, Download, Upload } from 'lucide-react'
+import React, { useState, useRef } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Lock, Shield, Database, Download, Upload, AlertTriangle, Trash2, Image } from 'lucide-react'
 import api from '../lib/api'
 
 export default function Settings() {
@@ -17,7 +17,18 @@ export default function Settings() {
   const [smtpPort, setSmtpPort] = useState<number>(587)
   const [smtpUser, setSmtpUser] = useState('')
   const [smtpPassword, setSmtpPassword] = useState('')
+  const [smtpPasswordChanged, setSmtpPasswordChanged] = useState(false)
+  const [offerLinkValidityDays, setOfferLinkValidityDays] = useState<number>(14)
+  const [telegramBotToken, setTelegramBotToken] = useState('')
+  const [telegramBotTokenChanged, setTelegramBotTokenChanged] = useState(false)
+  const [telegramChatId, setTelegramChatId] = useState('')
   const [addressMessage, setAddressMessage] = useState('')
+  const [wipeStep, setWipeStep] = useState(0)
+  const [wipeMessage, setWipeMessage] = useState('')
+  const [hasLogo, setHasLogo] = useState(false)
+  const [logoMessage, setLogoMessage] = useState('')
+  const logoInputRef = useRef<HTMLInputElement>(null)
+  const queryClient = useQueryClient()
 
   const { data: status } = useQuery({
     queryKey: ['auth-status'],
@@ -44,7 +55,21 @@ export default function Settings() {
       if (data && data.smtpHost) setSmtpHost(data.smtpHost)
       if (data && data.smtpPort) setSmtpPort(data.smtpPort)
       if (data && data.smtpUser) setSmtpUser(data.smtpUser)
-      if (data && data.smtpPassword) setSmtpPassword(data.smtpPassword)
+      if (data && data.smtpPassword && data.smtpPassword !== '••••••••') {
+        setSmtpPassword(data.smtpPassword)
+      } else {
+        setSmtpPassword('')
+        setSmtpPasswordChanged(false)
+      }
+      if (data && data.offerLinkValidityDays !== undefined) setOfferLinkValidityDays(data.offerLinkValidityDays)
+      if (data && data.telegramBotToken && data.telegramBotToken !== '••••••••') {
+        setTelegramBotToken(data.telegramBotToken)
+      } else {
+        setTelegramBotToken('')
+        setTelegramBotTokenChanged(false)
+      }
+      if (data && data.telegramChatId) setTelegramChatId(data.telegramChatId)
+      if (data && data.hasLogo !== undefined) setHasLogo(data.hasLogo)
       return data
     },
   })
@@ -83,7 +108,7 @@ export default function Settings() {
 
   const updateSettingsMutation = useMutation({
     mutationFn: async () => {
-      await api.put('/settings', {
+      const payload: any = {
         sellerAddress,
         vatPercent,
         taxNumber,
@@ -92,8 +117,18 @@ export default function Settings() {
         smtpHost,
         smtpPort,
         smtpUser,
-        smtpPassword
-      })
+        offerLinkValidityDays,
+        telegramChatId,
+      }
+      // Only send password if user actually changed it
+      if (smtpPasswordChanged) {
+        payload.smtpPassword = smtpPassword
+      }
+      // Only send telegram token if user actually changed it
+      if (telegramBotTokenChanged) {
+        payload.telegramBotToken = telegramBotToken
+      }
+      await api.put('/settings', payload)
     },
     onSuccess: () => {
       setAddressMessage('Einstellungen erfolgreich gespeichert')
@@ -212,6 +247,100 @@ export default function Settings() {
             <p className="text-xs text-gray-500 mt-1">Wichtig für QR-Codes auf PDFs, damit Kunden auf das Dokument zugreifen können.</p>
           </div>
 
+          {/* Logo Upload */}
+          <div className="pt-4 border-t border-gray-200">
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+              <Image className="w-4 h-4" />
+              Firmenlogo (für PDFs)
+            </label>
+            <p className="text-xs text-gray-500 mb-2">Wird oben links auf allen generierten PDF-Dokumenten angezeigt (max. 2 MB, PNG/JPEG/GIF).</p>
+            <div className="flex items-center gap-3">
+              {hasLogo && (
+                <img
+                  src={`/api/settings/logo?t=${Date.now()}`}
+                  alt="Firmenlogo"
+                  className="h-12 border rounded p-1 bg-white"
+                />
+              )}
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  if (file.size > 2 * 1024 * 1024) {
+                    setLogoMessage('Logo darf max. 2 MB groß sein.')
+                    return
+                  }
+                  const reader = new FileReader()
+                  reader.onload = async () => {
+                    try {
+                      await api.post('/settings/logo', {
+                        data: reader.result as string,
+                        filename: file.name,
+                      })
+                      setHasLogo(true)
+                      setLogoMessage('Logo erfolgreich hochgeladen')
+                      queryClient.invalidateQueries({ queryKey: ['settings'] })
+                      setTimeout(() => setLogoMessage(''), 3000)
+                    } catch (err: any) {
+                      setLogoMessage(err.response?.data?.error || 'Fehler beim Hochladen')
+                    }
+                  }
+                  reader.readAsDataURL(file)
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => logoInputRef.current?.click()}
+                className="btn-secondary flex items-center gap-2 text-sm"
+              >
+                <Upload className="w-4 h-4" />
+                {hasLogo ? 'Logo ersetzen' : 'Logo hochladen'}
+              </button>
+              {hasLogo && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await api.delete('/settings/logo')
+                      setHasLogo(false)
+                      setLogoMessage('Logo entfernt')
+                      setTimeout(() => setLogoMessage(''), 3000)
+                    } catch (err: any) {
+                      setLogoMessage(err.response?.data?.error || 'Fehler')
+                    }
+                  }}
+                  className="text-red-600 hover:text-red-700 text-sm"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {logoMessage && (
+              <div className={`mt-2 p-2 rounded text-sm ${logoMessage.includes('erfolgreich') || logoMessage.includes('entfernt') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                {logoMessage}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Linkgültigkeit für Angebote (Tage)
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="365"
+              value={offerLinkValidityDays}
+              onChange={(e) => setOfferLinkValidityDays(Number(e.target.value))}
+              className="input max-w-[120px]"
+            />
+            <p className="text-xs text-gray-500 mt-1">Wie lange der QR-Code-Link auf Angeboten gültig ist (Standard: 14 Tage).</p>
+          </div>
+
           <div className="pt-4 border-t border-gray-200">
             <h3 className="text-md font-semibold mb-3">SMTP E-Mail Server Einstellungen</h3>
             <p className="text-sm text-gray-500 mb-4">Wird verwendet, um Rechnungen, Angebote und Aufträge direkt aus dem System per E-Mail zu versenden.</p>
@@ -256,10 +385,49 @@ export default function Settings() {
                 <input
                   type="password"
                   value={smtpPassword}
-                  onChange={(e) => setSmtpPassword(e.target.value)}
+                  onChange={(e) => {
+                    setSmtpPassword(e.target.value)
+                    setSmtpPasswordChanged(true)
+                  }}
                   className="input"
-                  placeholder="********"
+                  placeholder={smtpPasswordChanged ? '' : '(verschlüsselt gespeichert)'}
                 />
+                <p className="text-xs text-gray-500 mt-1">Wird verschlüsselt in der Datenbank gespeichert. Leer lassen um nicht zu ändern.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Telegram Bot Settings */}
+          <div className="border-t border-gray-200 pt-6 mt-6">
+            <h3 className="text-md font-semibold mb-3">Telegram Benachrichtigungen</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Erhalte sofortige Benachrichtigungen per Telegram, wenn ein Kunde ein Angebot über den QR-Code annimmt oder ablehnt.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bot Token</label>
+                <input
+                  type="password"
+                  value={telegramBotToken}
+                  onChange={(e) => {
+                    setTelegramBotToken(e.target.value)
+                    setTelegramBotTokenChanged(true)
+                  }}
+                  className="input"
+                  placeholder={telegramBotTokenChanged ? '' : '(verschlüsselt gespeichert)'}
+                />
+                <p className="text-xs text-gray-500 mt-1">Vom @BotFather erhaltener Token. Wird verschlüsselt gespeichert.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Chat-ID</label>
+                <input
+                  type="text"
+                  value={telegramChatId}
+                  onChange={(e) => setTelegramChatId(e.target.value)}
+                  className="input"
+                  placeholder="z.B. 123456789"
+                />
+                <p className="text-xs text-gray-500 mt-1">Deine persönliche Chat-ID oder eine Gruppen-ID.</p>
               </div>
             </div>
           </div>
@@ -365,6 +533,102 @@ export default function Settings() {
             <Upload className="w-4 h-4" />
             Backup wiederherstellen
           </button>
+        </div>
+
+        {/* DB Wipe Section */}
+        <div className="mt-6 pt-6 border-t border-red-200">
+          <h3 className="text-md font-semibold text-red-700 mb-2 flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5" />
+            Gefahrenzone
+          </h3>
+          {wipeStep === 0 && (
+            <button
+              onClick={() => setWipeStep(1)}
+              className="px-4 py-2 bg-red-100 text-red-700 border border-red-300 rounded-lg hover:bg-red-200 transition-colors flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              Datenbank zurücksetzen
+            </button>
+          )}
+          {wipeStep === 1 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
+              <p className="text-red-800 font-medium">⚠️ Sind Sie sicher? Alle Daten werden unwiderruflich gelöscht!</p>
+              <p className="text-red-600 text-sm">Kunden, Angebote, Aufträge, Rechnungen, Einstellungen – alles wird gelöscht.</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setWipeStep(2)}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                >
+                  Ja, ich bin sicher
+                </button>
+                <button
+                  onClick={() => setWipeStep(0)}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                >
+                  Abbrechen
+                </button>
+              </div>
+            </div>
+          )}
+          {wipeStep === 2 && (
+            <div className="bg-red-100 border-2 border-red-400 rounded-lg p-4 space-y-3">
+              <p className="text-red-900 font-bold">🚨 LETZTE WARNUNG – Dies kann NICHT rückgängig gemacht werden!</p>
+              <p className="text-red-700 text-sm">
+                Tippen Sie <strong>DATENBANK UNWIDERRUFLICH LÖSCHEN</strong> ein, um die Löschung zu bestätigen:
+              </p>
+              <input
+                type="text"
+                className="input border-red-400 focus:ring-red-500"
+                placeholder="Bestätigungstext hier eingeben..."
+                onChange={(e) => {
+                  if (e.target.value === 'DATENBANK UNWIDERRUFLICH LÖSCHEN') {
+                    setWipeStep(3)
+                  }
+                }}
+              />
+              <button
+                onClick={() => setWipeStep(0)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+              >
+                Abbrechen
+              </button>
+            </div>
+          )}
+          {wipeStep === 3 && (
+            <div className="bg-red-100 border-2 border-red-500 rounded-lg p-4 space-y-3">
+              <p className="text-red-900 font-bold text-lg">⛔ ENDGÜLTIGE BESTÄTIGUNG</p>
+              <p className="text-red-700">Klicken Sie auf den Button, um die gesamte Datenbank unwiderruflich zu löschen.</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    try {
+                      const { data } = await api.post('/system/wipe', {
+                        confirmation: 'DATENBANK UNWIDERRUFLICH LÖSCHEN',
+                      })
+                      setWipeMessage(data.message || 'Datenbank wurde gelöscht.')
+                      setWipeStep(0)
+                    } catch (err: any) {
+                      setWipeMessage(err.response?.data?.error || 'Fehler beim Löschen.')
+                    }
+                  }}
+                  className="px-6 py-3 bg-red-700 text-white rounded-lg hover:bg-red-800 font-bold"
+                >
+                  🗑️ JETZT ENDGÜLTIG LÖSCHEN
+                </button>
+                <button
+                  onClick={() => setWipeStep(0)}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                >
+                  Abbrechen
+                </button>
+              </div>
+            </div>
+          )}
+          {wipeMessage && (
+            <div className={`mt-3 p-3 rounded-lg text-sm ${wipeMessage.includes('gelöscht') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+              {wipeMessage}
+            </div>
+          )}
         </div>
       </div>
 

@@ -18,6 +18,7 @@ import InvoiceDetail from './pages/InvoiceDetail'
 import Production from './pages/Production'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
+import OfferResponse from './pages/OfferResponse'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isUnlocked } = useAuthStore()
@@ -29,6 +30,7 @@ function App() {
     <ErrorBoundary>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/public/offer/:token" element={<OfferResponse />} />
         <Route path="/" element={
           <PrivateRoute>
             <Layout />

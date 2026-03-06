@@ -18,7 +18,7 @@ export interface Invoice {
   id: UUID;
   invoiceNumber: string;
   version: number;
-  orderId: UUID;
+  orderId?: UUID;
   customerId: UUID;
   status: InvoiceStatus;
 

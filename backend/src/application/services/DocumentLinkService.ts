@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import type { IDocumentLinkRepository } from '../ports/IDocumentLinkRepository';
 import type { DocumentLink } from '../../domain/document/DocumentLink';
 import { generateId } from '../../shared/utils/id';
-import type { ISODateTime, UUID } from '../../shared/types';
+import type { UUID } from '../../shared/types';
 import type { ICryptoService } from '../ports/ICryptoService';
 import type { EncryptedField } from '../../shared/types';
 
@@ -107,5 +107,28 @@ export class DocumentLinkService {
             link.expiresAt = newExpiresAt;
             await this.documentLinkRepo.update(link);
         }
+    }
+
+    /**
+     * Force-extends expiration even if the link is already expired (reactivation).
+     */
+    async forceExtendExpiration(link: DocumentLink, newExpiresAt: string): Promise<void> {
+        link.expiresAt = newExpiresAt;
+        await this.documentLinkRepo.update(link);
+    }
+
+    /**
+     * Update a link's properties (e.g. orderId, invoiceId) without changing the token/password.
+     */
+    async forceUpdateLink(link: DocumentLink): Promise<void> {
+        await this.documentLinkRepo.update(link);
+    }
+
+    /**
+     * Store an unencrypted JSON snapshot of offer/invoice data for public access without system unlock.
+     */
+    async savePublicData(link: DocumentLink, data: Record<string, unknown>): Promise<void> {
+        link.publicData = JSON.stringify(data);
+        await this.documentLinkRepo.update(link);
     }
 }

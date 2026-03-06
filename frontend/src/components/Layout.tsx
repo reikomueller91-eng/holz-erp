@@ -2,11 +2,13 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Package, FileText,
   ClipboardList, Receipt, Factory, BarChart3, Settings,
-  Lock, Menu, X
+  Lock, Menu, X, Bell, CheckCircle2, XCircle, Check
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import api from '../lib/api'
+import type { Notification } from '../types'
 
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -21,8 +23,44 @@ const navItems = [
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [notifOpen, setNotifOpen] = useState(false)
+  const notifRef = useRef<HTMLDivElement>(null)
   const { lock } = useAuthStore()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+
+  const { data: notifData } = useQuery({
+    queryKey: ['notifications'],
+    queryFn: async () => {
+      const { data } = await api.get<{ notifications: Notification[]; unreadCount: number }>('/notifications?limit=20')
+      return data
+    },
+    refetchInterval: 30000, // Poll every 30 seconds
+  })
+
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => api.patch(`/notifications/${id}/read`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+  })
+
+  const markAllReadMutation = useMutation({
+    mutationFn: () => api.patch('/notifications/read-all'),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+  })
+
+  const notifications = notifData?.notifications ?? []
+  const unreadCount = notifData?.unreadCount ?? 0
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false)
+      }
+    }
+    if (notifOpen) document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [notifOpen])
 
   const handleLock = async () => {
     try {
@@ -108,6 +146,80 @@ export default function Layout() {
           </button>
 
           <div className="flex items-center space-x-4 ml-auto">
+            {/* Notification Bell */}
+            <div className="relative" ref={notifRef}>
+              <button
+                onClick={() => setNotifOpen(!notifOpen)}
+                className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                title="Benachrichtigungen"
+              >
+                <Bell className="w-5 h-5 text-gray-600" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold text-white bg-red-500 rounded-full">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {notifOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-200 z-50 max-h-96 overflow-hidden flex flex-col">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                    <h3 className="font-semibold text-gray-900 text-sm">Benachrichtigungen</h3>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={() => markAllReadMutation.mutate()}
+                        className="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
+                      >
+                        <Check className="w-3 h-3" /> Alle gelesen
+                      </button>
+                    )}
+                  </div>
+                  <div className="overflow-y-auto max-h-72">
+                    {notifications.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-sm text-gray-400">
+                        Keine Benachrichtigungen
+                      </div>
+                    ) : (
+                      notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          className={`px-4 py-3 border-b border-gray-50 cursor-pointer hover:bg-gray-50 transition-colors ${!n.isRead ? 'bg-blue-50/50' : ''}`}
+                          onClick={() => {
+                            if (!n.isRead) markReadMutation.mutate(n.id)
+                            if (n.referenceType === 'offer' && n.referenceId) {
+                              navigate(`/offers/${n.referenceId}`)
+                              setNotifOpen(false)
+                            }
+                          }}
+                        >
+                          <div className="flex items-start gap-2.5">
+                            {n.type === 'offer_accepted' ? (
+                              <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                            ) : (
+                              <XCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-sm ${!n.isRead ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
+                                {n.title}
+                              </p>
+                              <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{n.message}</p>
+                              <p className="text-[10px] text-gray-400 mt-1">
+                                {new Date(n.createdAt).toLocaleDateString('de-DE')}{' '}
+                                {new Date(n.createdAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </div>
+                            {!n.isRead && (
+                              <span className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 flex-shrink-0" />
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <span className="text-sm font-medium text-gray-600 bg-gray-100 px-3 py-1.5 rounded-full">
               {(() => {
                 const date = new Date()

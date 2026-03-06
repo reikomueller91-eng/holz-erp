@@ -19,7 +19,7 @@ interface InvoiceRow {
   id: string;
   invoice_number: string;
   version: number;
-  order_id: string;
+  order_id: string | null;
   customer_id: string;
   status: string;
   encrypted_data: string;
@@ -128,7 +128,7 @@ export class InvoiceRepository implements IInvoiceRepository {
         invoice.id,
         invoice.invoiceNumber,
         invoice.version,
-        invoice.orderId,
+        invoice.orderId ?? null,
         invoice.customerId,
         invoice.status,
         encryptedData,
@@ -223,7 +223,7 @@ export class InvoiceRepository implements IInvoiceRepository {
       id: row.id as UUID,
       invoiceNumber: row.invoice_number,
       version: row.version,
-      orderId: row.order_id as UUID,
+      orderId: (row.order_id || undefined) as UUID | undefined,
       customerId: row.customer_id as UUID,
       status: row.status as InvoiceStatus,
       date: row.date,

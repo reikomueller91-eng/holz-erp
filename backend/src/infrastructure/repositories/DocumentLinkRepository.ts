@@ -10,6 +10,7 @@ interface DocumentLinkRow {
     order_id: string | null;
     invoice_id: string | null;
     encrypted_url: string | null;
+    public_data: string | null;
     expires_at: string;
     created_at: string;
     last_accessed_at: string | null;
@@ -27,6 +28,7 @@ export class DocumentLinkRepository implements IDocumentLinkRepository {
             orderId: row.order_id || undefined,
             invoiceId: row.invoice_id || undefined,
             encryptedUrl: row.encrypted_url || undefined,
+            publicData: row.public_data || undefined,
             expiresAt: row.expires_at,
             createdAt: row.created_at,
             lastAccessedAt: row.last_accessed_at || undefined,
@@ -37,8 +39,8 @@ export class DocumentLinkRepository implements IDocumentLinkRepository {
         this.db.run(
             `
       INSERT INTO document_links (
-        id, token, password_hash, offer_id, order_id, invoice_id, encrypted_url, expires_at, created_at, last_accessed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, token, password_hash, offer_id, order_id, invoice_id, encrypted_url, public_data, expires_at, created_at, last_accessed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
             [
                 link.id,
@@ -48,6 +50,7 @@ export class DocumentLinkRepository implements IDocumentLinkRepository {
                 link.orderId || null,
                 link.invoiceId || null,
                 link.encryptedUrl || null,
+                link.publicData || null,
                 link.expiresAt,
                 link.createdAt,
                 link.lastAccessedAt || null,
@@ -59,7 +62,7 @@ export class DocumentLinkRepository implements IDocumentLinkRepository {
         this.db.run(
             `
       UPDATE document_links 
-      SET token = ?, password_hash = ?, offer_id = ?, order_id = ?, invoice_id = ?, encrypted_url = ?, expires_at = ?, last_accessed_at = ?
+      SET token = ?, password_hash = ?, offer_id = ?, order_id = ?, invoice_id = ?, encrypted_url = ?, public_data = ?, expires_at = ?, last_accessed_at = ?
       WHERE id = ?
       `,
             [
@@ -69,6 +72,7 @@ export class DocumentLinkRepository implements IDocumentLinkRepository {
                 link.orderId || null,
                 link.invoiceId || null,
                 link.encryptedUrl || null,
+                link.publicData || null,
                 link.expiresAt,
                 link.lastAccessedAt || null,
                 link.id,

@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
+// @ts-ignore - qrcode has no type declarations
 import QRCode from 'qrcode';
 import type { Invoice } from '../../domain/invoice/Invoice';
 import type { Offer } from '../../domain/offer/Offer';
@@ -54,8 +55,7 @@ export class PDFService {
     }
   }
 
-  async generateInvoicePDF(invoice: Invoice, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string): Promise<PDFGenerationResult> {
-    const customer = await this.customerRepo.findById(invoice.customerId);
+  async generateInvoicePDF(invoice: Invoice, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string, logoPath?: string): Promise<PDFGenerationResult> {
     const fileName = `invoice-${invoice.invoiceNumber}.pdf`;
     const filePath = path.join(this.outputDir, fileName);
 
@@ -63,22 +63,28 @@ export class PDFService {
     const stream = fs.createWriteStream(filePath);
     doc.pipe(stream);
 
+    // Logo (top-left)
+    if (logoPath && fs.existsSync(logoPath)) {
+      try {
+        doc.image(logoPath, 490, 20, { height: 80 });
+      } catch (e) {
+        console.error('Failed to load logo:', e);
+      }
+    }
+
     // Header
     doc.fontSize(20).text('RECHNUNG', 50, 50);
     doc.fontSize(12).text(`Rechnungsnummer: ${invoice.invoiceNumber}`, 50, 80);
     doc.text(`Datum: ${invoice.date}`, 50, 95);
     doc.text(`Fällig bis: ${invoice.dueDate || 'Sofort'}`, 50, 110);
 
-    // Seller info
-    doc.fontSize(10).text('Verkäufer:', 50, 140);
-    doc.fontSize(10).text(invoice.sellerAddress, 50, 155);
-
     // Customer info
-    doc.fontSize(10).text('Kunde:', 350, 140);
-    doc.fontSize(10).text(invoice.customerAddress, 350, 155);
-    if (customer) {
-      doc.text(`${customer.name}`, 350, 170);
-    }
+    doc.fontSize(10).text('Kunde:', 50, 140);
+    doc.fontSize(10).text(invoice.customerAddress, 50, 155);
+
+    // Seller info
+    doc.fontSize(10).text('Verkäufer:', 290, 140);
+    doc.fontSize(10).text(invoice.sellerAddress, 290, 155);
 
     // Line items table
     doc.fontSize(12).text('Rechnungspositionen', 50, 220);
@@ -122,10 +128,7 @@ export class PDFService {
     }
 
     if (documentLinkUrl) {
-      // Reposition QR code to the top right beside the title
-      this.drawRoundQRCode(doc as any, documentLinkUrl, 420, 30, 80);
-      //doc.fontSize(6).text('Rechnung online aufrufen:', 420, 115);
-      //doc.fontSize(6).text(documentLinkUrl, 420, 125, { width: 140 });
+      this.drawRoundQRCode(doc as any, documentLinkUrl, 490, 119, 70);
     }
 
     doc.end();
@@ -138,8 +141,7 @@ export class PDFService {
     });
   }
 
-  async generateOfferPDF(offer: Offer, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string): Promise<PDFGenerationResult> {
-    const customer = await this.customerRepo.findById(offer.customerId);
+  async generateOfferPDF(offer: Offer, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string, logoPath?: string): Promise<PDFGenerationResult> {
     const fileName = `offer-${offer.offerNumber}.pdf`;
     const filePath = path.join(this.outputDir, fileName);
 
@@ -147,24 +149,36 @@ export class PDFService {
     const stream = fs.createWriteStream(filePath);
     doc.pipe(stream);
 
+    // Logo (top-left)
+    if (logoPath && fs.existsSync(logoPath)) {
+      try {
+        doc.image(logoPath, 490, 20, { height: 80 });
+      } catch (e) {
+        console.error('Failed to load logo:', e);
+      }
+    }
+
     // Header
     doc.fontSize(20).text('ANGEBOT', 50, 50);
     doc.fontSize(12).text(`Angebotsnummer: ${offer.offerNumber}`, 50, 80);
     doc.text(`Datum: ${offer.date}`, 50, 95);
+    let headerY = 110;
     if (offer.validUntil) {
-      doc.text(`Gültig bis: ${offer.validUntil}`, 50, 110);
+      doc.text(`Gültig bis: ${offer.validUntil}`, 50, headerY);
+      headerY += 15;
     }
-
-    // Seller info
-    doc.fontSize(10).text('Verkäufer:', 50, 140);
-    doc.fontSize(10).text(offer.sellerAddress, 50, 155);
+    if (offer.desiredCompletionDate) {
+      doc.text(`Gewünschte Fertigstellung: ${offer.desiredCompletionDate}`, 50, headerY);
+      headerY += 15;
+    }
 
     // Customer info
-    doc.fontSize(10).text('Kunde:', 350, 140);
-    doc.fontSize(10).text(offer.customerAddress, 350, 155);
-    if (customer) {
-      doc.text(`${customer.name}`, 350, 170);
-    }
+    doc.fontSize(10).text('Kunde:', 50, 150);
+    doc.fontSize(10).text(offer.customerAddress, 50, 165);
+
+    // Seller info
+    doc.fontSize(10).text('Verkäufer:', 290, 150);
+    doc.fontSize(10).text(offer.sellerAddress, 290, 165);
 
     // Line items table
     doc.fontSize(12).text('Angebotspositionen', 50, 220);
@@ -205,10 +219,8 @@ export class PDFService {
       doc.text(`Steuernummer: ${taxNumber}`, 400, footerY);
     }
     if (documentLinkUrl) {
-      // Reposition QR code to the top right beside the title
-      this.drawRoundQRCode(doc as any, documentLinkUrl, 420, 30, 80);
-      //doc.fontSize(6).text('Angebot online aufrufen:', 420, 115);
-      //doc.fontSize(6).text(documentLinkUrl, 420, 125, { width: 140 });
+      // QR code top right beside the title - links to offer portal (view + accept/reject)
+      this.drawRoundQRCode(doc as any, documentLinkUrl, 490, 129, 70);
     }
 
     doc.end();
@@ -221,7 +233,7 @@ export class PDFService {
     });
   }
 
-  async generateOrderPDF(order: Order, sellerAddress: string, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string): Promise<PDFGenerationResult> {
+  async generateOrderPDF(order: Order, sellerAddress: string, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string, logoPath?: string): Promise<PDFGenerationResult> {
     const customer = await this.customerRepo.findById(order.customerId);
     const fileName = `order-${order.orderNumber}.pdf`;
     const filePath = path.join(this.outputDir, fileName);
@@ -230,19 +242,31 @@ export class PDFService {
     const stream = fs.createWriteStream(filePath);
     doc.pipe(stream);
 
+    // Logo (top-left)
+    if (logoPath && fs.existsSync(logoPath)) {
+      try {
+        doc.image(logoPath, 490, 20, { height: 80 });
+      } catch (e) {
+        console.error('Failed to load logo:', e);
+      }
+    }
+
     // Header
     doc.fontSize(20).text('AUFTRAGSBESTÄTIGUNG', 50, 50);
     doc.fontSize(12).text(`Auftragsnummer: ${order.orderNumber}`, 50, 80);
     const dateStr = order.createdAt.split('T')[0];
     doc.text(`Datum: ${dateStr}`, 50, 95);
-
-    // Seller info
-    doc.fontSize(10).text('Verkäufer:', 50, 140);
-    doc.fontSize(10).text(sellerAddress, 50, 155);
+    if (order.desiredCompletionDate) {
+      doc.text(`Gewünschte Fertigstellung: ${order.desiredCompletionDate}`, 50, 110);
+    }
 
     // Customer info
-    doc.fontSize(10).text('Kunde:', 350, 140);
-    doc.fontSize(10).text(customer ? customer.name : 'Unbekannter Kunde', 350, 155);
+    doc.fontSize(10).text('Kunde:', 50, 140);
+    doc.fontSize(10).text(customer ? customer.name : 'Unbekannter Kunde', 50, 155);
+
+    // Seller info
+    doc.fontSize(10).text('Verkäufer:', 290, 140);
+    doc.fontSize(10).text(sellerAddress, 290, 155);
 
     // Line items table
     doc.fontSize(12).text('Auftragspositionen', 50, 220);
@@ -284,10 +308,7 @@ export class PDFService {
     }
 
     if (documentLinkUrl) {
-      // Reposition QR code to the top right beside the title
-      this.drawRoundQRCode(doc as any, documentLinkUrl, 420, 30, 80);
-      //doc.fontSize(6).text('Dokument online aufrufen / Rechnung folgt hier später:', 420, 115, { width: 140 });
-      //doc.fontSize(6).text(documentLinkUrl, 420, 125, { width: 140 });
+      this.drawRoundQRCode(doc as any, documentLinkUrl, 490, 119, 70);
     }
 
     doc.end();

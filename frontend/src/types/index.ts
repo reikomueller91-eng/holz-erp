@@ -45,17 +45,21 @@ export interface Offer {
   id: string
   offerNumber?: string
   version: number
-  customerId: string
+  customerId?: string
   customerName?: string
   status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'
   lineItems?: OfferLineItem[]
   items?: any[]
   validUntil: string
+  desiredCompletionDate?: string
   notes?: string
   pdfPath?: string
   totalAmount?: number
   netSum?: number
   grossSum?: number
+  customerResponse?: 'accepted' | 'rejected' | null
+  customerResponseAt?: string | null
+  customerComment?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -81,7 +85,7 @@ export interface Order {
   offerId: string
   customerId: string
   customerName?: string
-  status: 'new' | 'pending' | 'in_production' | 'finished' | 'ready' | 'delivered' | 'cancelled' | 'invoiced' | 'paid' | 'picked_up'
+  status: 'new' | 'in_production' | 'finished' | 'picked_up' | 'cancelled'
   productionJobs?: ProductionJob[]
   items?: any[]
   totalAmount?: number
@@ -90,6 +94,7 @@ export interface Order {
   vatAmount?: number
   grossSum?: number
   productionStatus?: string
+  desiredCompletionDate?: string
   pdfPath?: string
   createdAt: string
   updatedAt: string
@@ -109,7 +114,7 @@ export interface Invoice {
   id: string
   invoiceNumber?: string
   version: number
-  orderId: string
+  orderId?: string
   customerId: string
   customerName?: string
   status: 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
@@ -157,4 +162,15 @@ export interface ProductionCluster {
   totalQuantity: number
   totalProduced: number
   orders: ProductionOrderRef[]
+}
+
+export interface Notification {
+  id: string
+  type: 'offer_accepted' | 'offer_rejected'
+  title: string
+  message: string
+  referenceType?: 'offer' | 'order' | 'invoice'
+  referenceId?: string
+  isRead: boolean
+  createdAt: string
 }

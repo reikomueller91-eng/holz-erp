@@ -153,6 +153,13 @@ function ProductModal({ product, onClose }: { product: Product | null; onClose: 
     currentPricePerM2: product?.currentPricePerM2 || 0,
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // For volume_divided: allow manual price override
+  const calculatedPrice = formData.calcMethod === 'volume_divided'
+    ? (formData.heightMm * formData.widthMm) / (formData.volumeDivider || 1)
+    : 0
+  const [manualPrice, setManualPrice] = useState<number | null>(
+    product?.calcMethod === 'volume_divided' && product?.currentPricePerM2 ? product.currentPricePerM2 : null
+  )
 
   const handleSubmit = async () => {
     if (!formData.name.trim()) {
@@ -162,11 +169,25 @@ function ProductModal({ product, onClose }: { product: Product | null; onClose: 
 
     setIsSubmitting(true)
     try {
+      // Build payload: exclude currentPricePerM2 if 0 or volume_divided, compute from divider instead
+      const payload: Record<string, unknown> = { ...formData }
+      if (formData.calcMethod === 'volume_divided') {
+        // Use manual override price if set, otherwise calculate from dimensions
+        const finalPrice = manualPrice !== null ? manualPrice : calculatedPrice
+        if (finalPrice > 0) {
+          payload.currentPricePerM2 = parseFloat(finalPrice.toFixed(4))
+        } else {
+          delete payload.currentPricePerM2
+        }
+      } else if (!formData.currentPricePerM2 || formData.currentPricePerM2 <= 0) {
+        delete payload.currentPricePerM2
+      }
+
       if (product) {
-        await api.put(`/products/${product.id}`, formData)
+        await api.put(`/products/${product.id}`, payload)
         toast.success('Produkt aktualisiert')
       } else {
-        await api.post('/products', formData)
+        await api.post('/products', payload)
         toast.success('Produkt erstellt')
       }
       queryClient.invalidateQueries({ queryKey: ['products'] })
@@ -229,10 +250,29 @@ function ProductModal({ product, onClose }: { product: Product | null; onClose: 
             <input type="number" value={formData.widthMm} onChange={(e) => setFormData({ ...formData, widthMm: Number(e.target.value) })} className="input" disabled={isSubmitting || formData.calcMethod === 'm2_unsorted'} title={formData.calcMethod === 'm2_unsorted' ? 'Breite bei unsortierten Brettern irrelevant' : ''} />
           </div>
           {formData.calcMethod === 'volume_divided' ? (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Teiler (Volumen)</label>
-              <input type="number" value={formData.volumeDivider} onChange={(e) => setFormData({ ...formData, volumeDivider: Number(e.target.value) })} className="input" disabled={isSubmitting} />
-            </div>
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Teiler (Volumen)</label>
+                <input type="number" value={formData.volumeDivider} onChange={(e) => { setFormData({ ...formData, volumeDivider: Number(e.target.value) }); setManualPrice(null); }} className="input" disabled={isSubmitting} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Endpreis/Lfm (€)</label>
+                <input
+                  type="number"
+                  step="0.0001"
+                  value={manualPrice !== null ? manualPrice : parseFloat(calculatedPrice.toFixed(4))}
+                  onChange={(e) => setManualPrice(Number(e.target.value))}
+                  className="input"
+                  disabled={isSubmitting}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Berechnet: €{calculatedPrice.toFixed(4)} ({formData.heightMm}×{formData.widthMm}/{formData.volumeDivider})
+                  {manualPrice !== null && manualPrice !== parseFloat(calculatedPrice.toFixed(4)) && (
+                    <button type="button" onClick={() => setManualPrice(null)} className="ml-2 text-primary-600 hover:underline">Zurücksetzen</button>
+                  )}
+                </p>
+              </div>
+            </>
           ) : (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Preis Brutto/m²</label>

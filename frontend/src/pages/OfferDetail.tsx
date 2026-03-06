@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Download, CheckCircle, XCircle, FileText, ClipboardList, Edit, ArrowRight, Plus, Trash2, Send } from 'lucide-react'
+import { ArrowLeft, Download, CheckCircle, XCircle, FileText, ClipboardList, Edit, ArrowRight, Plus, Trash2, Send, UserPlus, Globe, Monitor, QrCode, Phone } from 'lucide-react'
 import api from '../lib/api'
 import { formatCurrency } from '../lib/utils'
-import type { Offer, Product } from '../types'
+import type { Offer, Product, Customer } from '../types'
 
 type EditLineItem = {
   productId: string
@@ -19,8 +19,11 @@ export default function OfferDetail() {
   const navigate = useNavigate()
 
   const [showEditModal, setShowEditModal] = useState(false)
+  const [showAssignCustomerModal, setShowAssignCustomerModal] = useState(false)
+  const [selectedCustomerId, setSelectedCustomerId] = useState('')
   const [editNotes, setEditNotes] = useState('')
   const [editValidUntil, setEditValidUntil] = useState('')
+  const [editDesiredCompletionDate, setEditDesiredCompletionDate] = useState('')
   const [editLineItems, setEditLineItems] = useState<EditLineItem[]>([])
 
   const { data: offer } = useQuery({
@@ -40,10 +43,25 @@ export default function OfferDetail() {
     enabled: showEditModal,
   })
 
+  const { data: customers } = useQuery({
+    queryKey: ['customers'],
+    queryFn: async () => {
+      const { data } = await api.get<Customer[]>('/customers')
+      return Array.isArray(data) ? data : []
+    },
+    enabled: showAssignCustomerModal,
+  })
+
   const acceptMutation = useMutation({
     mutationFn: () => api.post(`/offers/${id}/status`, { status: 'accepted' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['offer', id] }),
   })
+
+  const manualAcceptMutation = useMutation({
+    mutationFn: (comment: string | undefined) => api.post(`/offers/${id}/accept-manual`, { comment }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['offer', id] }),
+  })
+
 
   const rejectMutation = useMutation({
     mutationFn: () => api.post(`/offers/${id}/status`, { status: 'rejected' }),
@@ -57,7 +75,10 @@ export default function OfferDetail() {
 
   const generatePdfMutation = useMutation({
     mutationFn: () => api.post(`/offers/${id}/pdf`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['offer', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['offer', id] })
+      queryClient.invalidateQueries({ queryKey: ['offer-qr', id] })
+    },
   })
 
   const emailMutation = useMutation({
@@ -71,8 +92,20 @@ export default function OfferDetail() {
     }
   })
 
+  const assignCustomerMutation = useMutation({
+    mutationFn: (customerId: string) => api.post(`/offers/${id}/assign-customer`, { customerId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['offer', id] })
+      setShowAssignCustomerModal(false)
+      setSelectedCustomerId('')
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.error || 'Fehler bei Kundenzuordnung')
+    }
+  })
+
   const updateMutation = useMutation({
-    mutationFn: (body: { notes?: string; validUntil?: string; lineItems?: { productId: string; lengthMm: number; quantityPieces: number; unitPricePerM2: number }[] }) =>
+    mutationFn: (body: { notes?: string; validUntil?: string; desiredCompletionDate?: string; lineItems?: { productId: string; lengthMm: number; quantityPieces: number; unitPricePerM2: number }[] }) =>
       api.put(`/offers/${id}`, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['offer', id] })
@@ -88,9 +121,35 @@ export default function OfferDetail() {
     },
   })
 
+  interface AccessLogEntry {
+    id: string
+    action: string
+    ipAddress: string
+    userAgent: string
+    createdAt: string
+  }
+
+  const { data: accessLogs } = useQuery({
+    queryKey: ['offer-access-log', id],
+    queryFn: async () => {
+      const { data } = await api.get<{ logs: AccessLogEntry[] }>(`/offers/${id}/access-log`)
+      return data.logs
+    },
+  })
+
+  const { data: qrData } = useQuery({
+    queryKey: ['offer-qr', id],
+    queryFn: async () => {
+      const res = await api.get<{ secureLink: string | null; qrDataUrl: string | null }>(`/offers/${id}/qrlink`)
+      return res.data
+    },
+    enabled: !!offer?.pdfPath,
+  })
+
   const openEditModal = () => {
     setEditNotes(offer?.notes ?? '')
     setEditValidUntil(offer?.validUntil ? offer.validUntil.split('T')[0] : '')
+    setEditDesiredCompletionDate(offer?.desiredCompletionDate ? offer.desiredCompletionDate.split('T')[0] : '')
     setEditLineItems(
       (offer?.lineItems ?? []).map(item => ({
         productId: item.productId,
@@ -132,6 +191,7 @@ export default function OfferDetail() {
     updateMutation.mutate({
       notes: editNotes || undefined,
       validUntil: editValidUntil || undefined,
+      desiredCompletionDate: editDesiredCompletionDate || undefined,
       lineItems: editLineItems
         .filter(item => item.productId)
         .map(item => ({
@@ -250,11 +310,26 @@ export default function OfferDetail() {
               </button>
             </>
           )}
+          {(offer.status === 'sent' || offer.status === 'draft') && (
+            <button
+              onClick={() => {
+                if (confirm('Angebot im Auftrag des Kunden annehmen?')) {
+                  manualAcceptMutation.mutate(undefined)
+                }
+              }}
+              disabled={manualAcceptMutation.isPending}
+              className="btn-secondary flex items-center gap-2 border-green-300 text-green-700 hover:bg-green-50"
+            >
+              <Phone className="w-4 h-4" />
+              Im Auftrag d. Kunden annehmen
+            </button>
+          )}
           {(offer.status === 'accepted' || offer.status === 'draft') && !isConverted && (
             <button
               onClick={() => convertMutation.mutate()}
-              disabled={convertMutation.isPending}
-              className="btn-primary flex items-center gap-2"
+              disabled={convertMutation.isPending || !offer.customerId}
+              className={`btn-primary flex items-center gap-2 ${!offer.customerId ? 'opacity-50 cursor-not-allowed' : ''}`}
+              title={!offer.customerId ? 'Bitte zuerst einen Kunden zuordnen' : 'Zum Auftrag umwandeln'}
             >
               <ArrowRight className="w-4 h-4" />
               {convertMutation.isPending ? 'Wird umgewandelt...' : 'Zum Auftrag umwandeln'}
@@ -322,7 +397,20 @@ export default function OfferDetail() {
             <div className="space-y-3">
               <div>
                 <p className="text-sm text-gray-500">Kunde</p>
-                <p className="font-medium text-gray-900">{offer.customerName || 'Unbekannt'}</p>
+                <p className="font-medium text-gray-900">
+                  {offer.customerId ? (offer.customerName || 'Unbekannt') : (
+                    <span className="text-amber-600 flex items-center gap-1">
+                      Anonym
+                      <button
+                        onClick={() => setShowAssignCustomerModal(true)}
+                        className="ml-2 text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded hover:bg-primary-200"
+                      >
+                        <UserPlus className="w-3 h-3 inline mr-1" />
+                        Zuordnen
+                      </button>
+                    </span>
+                  )}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Status</p>
@@ -354,6 +442,65 @@ export default function OfferDetail() {
                   </p>
                 </div>
               )}
+              {offer.validUntil && (
+                <div>
+                  <p className="text-sm text-gray-500">Angebotsdauer</p>
+                  <p className="font-medium text-gray-900">
+                    {(() => {
+                      const now = new Date();
+                      const validDate = new Date(offer.validUntil);
+                      const diffDays = Math.ceil((validDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                      if (diffDays < 0) return <span className="text-red-600">Abgelaufen ({Math.abs(diffDays)} Tage)</span>;
+                      return <span className="text-green-700">{diffDays} Tage verbleibend</span>;
+                    })()}
+                  </p>
+                </div>
+              )}
+              {offer.desiredCompletionDate && (
+                <div>
+                  <p className="text-sm text-gray-500">Wunschdatum Fertigstellung</p>
+                  <p className="font-medium text-gray-900">
+                    {new Date(offer.desiredCompletionDate).toLocaleDateString('de-DE')}
+                  </p>
+                </div>
+              )}
+              {/* Customer QR Response */}
+              {offer.customerResponse && (
+                <div>
+                  <p className="text-sm text-gray-500">Kundenantwort (QR)</p>
+                  <div className="mt-1">
+                    {offer.customerResponse === 'accepted' ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                        <CheckCircle className="w-3.5 h-3.5" /> Vom Kunden angenommen
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+                        <XCircle className="w-3.5 h-3.5" /> Vom Kunden abgelehnt
+                      </span>
+                    )}
+                    {offer.customerResponseAt && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        am {new Date(offer.customerResponseAt).toLocaleDateString('de-DE')}{' '}
+                        um {new Date(offer.customerResponseAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    )}
+                    {offer.customerComment && (
+                      <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200">
+                        <p className="text-xs text-gray-500 font-medium">Kundenkommentar:</p>
+                        <p className="text-sm text-gray-700 mt-0.5">{offer.customerComment}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {!offer.customerResponse && offer.status === 'sent' && (
+                <div>
+                  <p className="text-sm text-gray-500">Kundenantwort (QR)</p>
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700 mt-1">
+                    Ausstehend
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -375,6 +522,78 @@ export default function OfferDetail() {
               </Link>
             </div>
           )}
+
+          {/* QR Code Section */}
+          {qrData?.qrDataUrl && (
+            <div className="card p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <QrCode className="w-5 h-5 text-gray-500" />
+                <h2 className="text-lg font-semibold">QR-Code</h2>
+              </div>
+              <div className="flex flex-col items-center">
+                <img
+                  src={qrData.qrDataUrl}
+                  alt="Angebots-QR-Code"
+                  className="w-40 h-40"
+                />
+                <p className="text-xs text-gray-500 mt-2 text-center">
+                  Diesen QR-Code scannen, um das Angebot online aufzurufen.
+                </p>
+              </div>
+              {qrData?.secureLink && (
+                <div className="mt-3">
+                  <p className="text-xs text-gray-500 mb-1">Direktlink:</p>
+                  <div className="bg-gray-50 rounded p-2 break-all text-xs text-gray-700 font-mono select-all">
+                    {qrData.secureLink}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Access Log / Client Tracking */}
+          {accessLogs && accessLogs.length > 0 && (
+            <div className="card p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <Globe className="w-6 h-6 text-blue-600" />
+                <h2 className="text-lg font-semibold text-gray-900">Zugriffsverlauf</h2>
+                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{accessLogs.length} Einträge</span>
+              </div>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {accessLogs.map((log) => {
+                  const actionLabels: Record<string, string> = {
+                    view_offer: '📄 Angebot angesehen',
+                    download_pdf: '⬇️ PDF heruntergeladen',
+                    respond_accepted: '✅ Angebot angenommen',
+                    respond_rejected: '❌ Angebot abgelehnt',
+                  };
+                  return (
+                    <div key={log.id} className="flex items-start gap-3 p-2 bg-gray-50 rounded-lg text-sm">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-800">
+                          {actionLabels[log.action] || log.action}
+                        </p>
+                        <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
+                          <span className="inline-flex items-center gap-1">
+                            <Globe className="w-3 h-3" />
+                            {log.ipAddress}
+                          </span>
+                          <span className="inline-flex items-center gap-1 truncate max-w-[300px]" title={log.userAgent}>
+                            <Monitor className="w-3 h-3" />
+                            {log.userAgent.length > 60 ? log.userAgent.substring(0, 60) + '…' : log.userAgent}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-xs text-gray-400 whitespace-nowrap">
+                        {new Date(log.createdAt).toLocaleDateString('de-DE')}{' '}
+                        {new Date(log.createdAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -392,6 +611,15 @@ export default function OfferDetail() {
                     type="date"
                     value={editValidUntil}
                     onChange={(e) => setEditValidUntil(e.target.value)}
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Wunschdatum Fertigstellung</label>
+                  <input
+                    type="date"
+                    value={editDesiredCompletionDate}
+                    onChange={(e) => setEditDesiredCompletionDate(e.target.value)}
                     className="input"
                   />
                 </div>
@@ -525,6 +753,41 @@ export default function OfferDetail() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Customer Modal */}
+      {showAssignCustomerModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+            <h2 className="text-lg font-bold mb-4">Kunde zuordnen</h2>
+            <p className="text-sm text-gray-500 mb-4">Wählen Sie einen Kunden für dieses anonyme Angebot aus.</p>
+            <select
+              value={selectedCustomerId}
+              onChange={(e) => setSelectedCustomerId(e.target.value)}
+              className="input w-full mb-4"
+            >
+              <option value="">Kunde auswählen...</option>
+              {(customers || []).map((c: Customer) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <div className="flex gap-3">
+              <button
+                onClick={() => selectedCustomerId && assignCustomerMutation.mutate(selectedCustomerId)}
+                disabled={!selectedCustomerId || assignCustomerMutation.isPending}
+                className="btn-primary flex-1"
+              >
+                {assignCustomerMutation.isPending ? 'Zuordnen...' : 'Zuordnen'}
+              </button>
+              <button
+                onClick={() => { setShowAssignCustomerModal(false); setSelectedCustomerId('') }}
+                className="btn-secondary flex-1"
+              >
+                Abbrechen
+              </button>
+            </div>
           </div>
         </div>
       )}

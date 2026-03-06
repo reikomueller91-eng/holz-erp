@@ -18,7 +18,7 @@ export function formatCurrency(amount: number): string {
 
 // Status color mappings
 export type OfferStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'
-export type OrderStatus = 'pending' | 'in_production' | 'ready' | 'delivered' | 'cancelled'
+export type OrderStatus = 'new' | 'in_production' | 'finished' | 'picked_up' | 'cancelled'
 export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
 export type ProductionStatus = 'queued' | 'in_progress' | 'done' | 'issue'
 
@@ -31,10 +31,10 @@ export const statusConfig = {
     expired: { color: 'bg-yellow-100 text-yellow-800', label: 'Abgelaufen' },
   },
   order: {
-    pending: { color: 'bg-yellow-100 text-yellow-800', label: 'Ausstehend' },
-    in_production: { color: 'bg-blue-100 text-blue-800', label: 'In Produktion' },
-    ready: { color: 'bg-purple-100 text-purple-800', label: 'Bereit' },
-    delivered: { color: 'bg-green-100 text-green-800', label: 'Geliefert' },
+    new: { color: 'bg-blue-100 text-blue-800', label: 'Neu' },
+    in_production: { color: 'bg-amber-100 text-amber-800', label: 'In Produktion' },
+    finished: { color: 'bg-green-100 text-green-800', label: 'Fertiggestellt' },
+    picked_up: { color: 'bg-teal-100 text-teal-800', label: 'Abgeholt' },
     cancelled: { color: 'bg-red-100 text-red-800', label: 'Storniert' },
   },
   invoice: {

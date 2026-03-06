@@ -26,6 +26,7 @@ interface OrderRow {
   updated_at: string;
   finished_at?: string;
   pdf_path?: string;
+  desired_completion_date?: string;
 }
 
 interface OrderEncryptedData {
@@ -115,8 +116,8 @@ export class OrderRepository implements IOrderRepository {
     this.db.run(
       `INSERT INTO orders (
         id, order_number, offer_id, status, customer_id, encrypted_data,
-        created_at, updated_at, finished_at, pdf_path
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        created_at, updated_at, finished_at, pdf_path, desired_completion_date
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         order.id,
         order.orderNumber,
@@ -128,6 +129,7 @@ export class OrderRepository implements IOrderRepository {
         order.updatedAt,
         order.finishedAt ?? null,
         order.pdfPath ?? null,
+        order.desiredCompletionDate ?? null,
       ]
     );
   }
@@ -149,7 +151,8 @@ export class OrderRepository implements IOrderRepository {
         encrypted_data = ?,
         updated_at = ?,
         finished_at = ?,
-        pdf_path = ?
+        pdf_path = ?,
+        desired_completion_date = ?
       WHERE id = ?`,
       [
         order.status,
@@ -157,6 +160,7 @@ export class OrderRepository implements IOrderRepository {
         order.updatedAt,
         order.finishedAt ?? null,
         order.pdfPath ?? null,
+        order.desiredCompletionDate ?? null,
         order.id,
       ]
     );
@@ -177,6 +181,7 @@ export class OrderRepository implements IOrderRepository {
       vatAmount: decrypted.vatAmount,
       grossSum: decrypted.grossSum,
       productionStatus: decrypted.productionStatus,
+      desiredCompletionDate: row.desired_completion_date,
       notes: decrypted.notes,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

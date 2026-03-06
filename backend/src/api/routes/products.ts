@@ -13,7 +13,7 @@ const CreateProductBody = z.object({
   heightMm: z.number().int().nonnegative(), // changed allowing 0 for m2_unsorted
   widthMm: z.number().int().nonnegative(), // changed allowing 0 for m2_unsorted
   calcMethod: z.enum(['m2_unsorted', 'm2_sorted', 'volume_divided']).default('m2_sorted'),
-  volumeDivider: z.number().int().positive().optional(),
+  volumeDivider: z.number().positive().optional(),
   description: z.string().max(2000).optional(),
   // Accept both field names
   initialPricePerM2: z.number().positive().optional(),
@@ -28,7 +28,7 @@ const UpdateProductBody = z.object({
   heightMm: z.number().int().nonnegative().optional(),
   widthMm: z.number().int().nonnegative().optional(),
   calcMethod: z.enum(['m2_unsorted', 'm2_sorted', 'volume_divided']).optional(),
-  volumeDivider: z.number().int().positive().nullable().optional(),
+  volumeDivider: z.number().positive().nullable().optional(),
   description: z.string().max(2000).optional(),
   isActive: z.boolean().optional(),
   currentPricePerM2: z.number().positive().optional(),

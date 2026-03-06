@@ -1,5 +1,3 @@
-import { UUID, ISODateTime } from '../../shared/types';
-
 export interface DocumentLink {
     id: string; // UUID
     token: string;
@@ -8,6 +6,7 @@ export interface DocumentLink {
     orderId?: string; // UUID
     invoiceId?: string; // UUID
     encryptedUrl?: string; // Encrypted absolute URL
+    publicData?: string; // Unencrypted JSON snapshot of offer/invoice data for public access
     expiresAt: string; // ISODateTime
     createdAt: string; // ISODateTime
     lastAccessedAt?: string; // ISODateTime

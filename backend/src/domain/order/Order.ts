@@ -29,6 +29,7 @@ export interface Order {
   vatAmount: number;
   grossSum: number;
   productionStatus: ProductionStatus;
+  desiredCompletionDate?: string;
   notes?: string;
   pdfPath?: string;
   createdAt: ISODateTime;
@@ -40,9 +41,7 @@ export interface Order {
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   new: ['in_production', 'cancelled'],
   in_production: ['finished', 'cancelled'],
-  finished: ['invoiced'],
-  invoiced: ['paid'],
-  paid: ['picked_up'],
+  finished: ['picked_up', 'cancelled'],
   picked_up: [],
   cancelled: [],
 };

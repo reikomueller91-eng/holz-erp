@@ -8,6 +8,8 @@ import type { IOrderRepository } from '../infrastructure/repositories/OrderRepos
 import type { IOfferRepository } from '../infrastructure/repositories/OfferRepository';
 import type { IInvoiceRepository } from '../infrastructure/repositories/InvoiceRepository';
 import type { ISystemConfigRepository } from '../infrastructure/repositories/SystemConfigRepository';
+import type { INotificationRepository } from '../infrastructure/repositories/NotificationRepository';
+import type { IDocumentHistoryRepository } from '../infrastructure/repositories/DocumentHistoryRepository';
 import type { ProductService } from '../application/services/ProductService';
 import type { PricingService } from '../application/services/PricingService';
 import type { DocumentLinkService } from '../application/services/DocumentLinkService';
@@ -18,7 +20,7 @@ declare module 'fastify' {
     // Core infrastructure
     keyStore: IKeyStore;
     db: IDatabase;
-    crypto: ICryptoService;
+    cryptoService: ICryptoService;
 
     // Repositories
     customerRepository: ICustomerRepository;
@@ -27,6 +29,8 @@ declare module 'fastify' {
     offerRepository: IOfferRepository;
     invoiceRepository: IInvoiceRepository;
     systemConfigRepository: ISystemConfigRepository;
+    notificationRepository: INotificationRepository;
+    documentHistoryRepository: IDocumentHistoryRepository;
 
     // Services
     productService: ProductService;

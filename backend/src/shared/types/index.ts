@@ -65,8 +65,6 @@ export const ORDER_STATUSES = [
   'new',
   'in_production',
   'finished',
-  'invoiced',
-  'paid',
   'picked_up',
   'cancelled',
 ] as const;
