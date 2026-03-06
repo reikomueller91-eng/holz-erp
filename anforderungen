@@ -10,5 +10,6 @@ verknüpfen mit einem kalender bzw kalenderplanungstool um die produktion absch�
 
 # wenn ein kunde ein angebot über den public teil annimt soll zusätzlich sofort ein benachrichtigung via telegram über einen bot an mich gesendet werden. in den settings muss hierzu der der access token hinterlegt werden können.
 
+eine erstelle Rechnung muss wieder rückgängig gemacht werden. aber vollsätndig durch herauslöschen aus der db. als wenn diese nie existiert hat. auch muss es eine option zum umschalten von der rechnungssuche auf der rechnungen seite tab geben. somit können nicht abgehölte waren nicht verechnet werden. es darf die rechnungsnummer somit auch erneut vergeben werden.
 
 aktuellste preis eines jeden produktes muss in einer unverschlüsselten tabelle existieren.
