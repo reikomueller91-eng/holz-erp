@@ -6,10 +6,13 @@ import { transitionOffer, createOfferVersion, calcOfferTotals } from '../../doma
 import type { OfferStatus, UUID, ISODateTime } from '../../shared/types';
 import { requireUnlocked } from '../middleware/auth';
 import { generateId } from '../../shared/utils/id';
+import { linkDecrypt, extractPasswordFromUrl } from '../../shared/utils/linkCrypto';
 import { PDFService } from '../../infrastructure/pdf/PDFService';
 import type { Order, OrderItem } from '../../domain/order/Order';
 import { calcOrderTotals } from '../../domain/order/Order';
 import { EmailSenderService } from '../../application/services/EmailSenderService';
+import { solveGrossRounding } from '../../application/services/GrossRoundingService';
+import type { RoundingItem } from '../../application/services/GrossRoundingService';
 import { DEFAULT_SELLER_ADDRESS } from '../../shared/constants';
 // @ts-ignore - qrcode has no type declarations
 import QRCode from 'qrcode';
@@ -498,6 +501,10 @@ export async function offerRoutes(fastify: FastifyInstance) {
             try {
                 const taxNumber = await configRepo.getValue('tax_number') || undefined;
                 const deliveryNote = await configRepo.getValue('delivery_note') || undefined;
+                const ustId = await configRepo.getValue('ust_id') || undefined;
+                const bankAccountHolder = await configRepo.getValue('bank_account_holder') || undefined;
+                const bankIban = await configRepo.getValue('bank_iban') || undefined;
+                const bankBic = await configRepo.getValue('bank_bic') || undefined;
                 const mainDomain = await configRepo.getValue('main_domain') || 'http://localhost:3000';
                 const validityDaysStr = await configRepo.getValue('offer_link_validity_days');
                 const validityDays = validityDaysStr ? parseInt(validityDaysStr, 10) : 14;
@@ -524,7 +531,18 @@ export async function offerRoutes(fastify: FastifyInstance) {
                     }
                 }
 
-                const { filePath, fileName } = await pdfService.generateOfferPDF(offer, taxNumber, deliveryNote, offerPortalLink, await configRepo.getValue('logo_path') || undefined);
+                // Build product name map for PDF
+                const productNameMap = new Map<string, { name: string; calcMethod: string }>();
+                for (const item of offer.items) {
+                    if (!productNameMap.has(item.productId)) {
+                        try {
+                            const product = await productService.getById(item.productId as any);
+                            productNameMap.set(item.productId, { name: product.name, calcMethod: product.calcMethod });
+                        } catch { /* product not found, fallback in PDF */ }
+                    }
+                }
+
+                const { filePath, fileName } = await pdfService.generateOfferPDF(offer, taxNumber, deliveryNote, offerPortalLink, await configRepo.getValue('logo_path') || undefined, productNameMap as any, { taxNumber, ustId, bankAccountHolder, bankIban, bankBic });
 
                 // Store unencrypted snapshot of offer data for public access (no system unlock needed)
                 const publicOfferData = {
@@ -613,11 +631,40 @@ export async function offerRoutes(fastify: FastifyInstance) {
             }
 
             try {
+                // Try to get the secure link for the offer
+                let secureLink: string | null = null;
+                let linkExpiresAt: string | null = null;
+                const docLink = await fastify.documentLinkService.getExistingLink({ offerId: offer.id });
+                if (docLink) {
+                    secureLink = fastify.documentLinkService.getDecryptedUrl(docLink);
+                    linkExpiresAt = docLink.expiresAt || null;
+                }
+
+                // Format validity date
+                const validityText = linkExpiresAt
+                    ? new Date(linkExpiresAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                    : null;
+
+                // Build personalized text
+                const greeting = customer?.name ? `Sehr geehrte/r ${customer.name}` : 'Sehr geehrte Damen und Herren';
+
+                const linkBlock = secureLink
+                    ? `\n\nSie können Ihr Angebot auch online einsehen:\n${secureLink}${validityText ? `\n\nDer Link ist gültig bis zum ${validityText}.` : ''}`
+                    : '';
+
+                const plainText = `${greeting},\n\nanbei erhalten Sie das Angebot ${offer.offerNumber}.${linkBlock}\n\nMit freundlichen Grüßen`;
+
+                const linkBlockHtml = secureLink
+                    ? `<p>Sie können Ihr Angebot auch online einsehen:<br><a href="${secureLink}">${secureLink}</a></p>${validityText ? `<p><small>Der Link ist gültig bis zum ${validityText}.</small></p>` : ''}`
+                    : '';
+
+                const htmlText = `<p>${greeting},</p><p>anbei erhalten Sie das Angebot ${offer.offerNumber}.</p>${linkBlockHtml}<p>Mit freundlichen Grüßen</p>`;
+
                 await emailService.sendEmailWithAttachment(
                     toEmail,
                     `Angebot ${offer.offerNumber}`,
-                    `Sehr geehrte Damen und Herren,\n\nanbei erhalten Sie das Angebot ${offer.offerNumber}.\n\nMit freundlichen Grüßen`,
-                    `<p>Sehr geehrte Damen und Herren,</p><p>anbei erhalten Sie das Angebot ${offer.offerNumber}.</p><p>Mit freundlichen Grüßen</p>`,
+                    plainText,
+                    htmlText,
                     anyOffer.pdfPath,
                     `Angebot-${offer.offerNumber}.pdf`
                 );
@@ -626,6 +673,107 @@ export async function offerRoutes(fastify: FastifyInstance) {
             } catch (error: any) {
                 return reply.status(500).send({ error: error.message || 'Failed to send email' });
             }
+        }
+    );
+
+    // POST /api/offers/:id/round-gross - Calculate rounded gross amount
+    const RoundGrossSchema = z.object({
+        roundingMethod: z.enum(['euro', '5euro']),
+        tolerance: z.number().positive().default(0.03),
+    });
+
+    fastify.post<{ Params: { id: string } }>(
+        '/offers/:id/round-gross',
+        { preHandler: requireUnlocked },
+        async (request, reply) => {
+            const offer = await offerRepo.findById(request.params.id as UUID);
+            if (!offer) return reply.status(404).send({ error: 'Angebot nicht gefunden' });
+
+            const data = RoundGrossSchema.parse(request.body);
+
+            // Build rounding items from offer items with product info
+            const roundingItems: RoundingItem[] = await Promise.all(
+                offer.items.map(async (item) => {
+                    const product = await productService.getById(item.productId).catch(() => null);
+                    return {
+                        productId: item.productId,
+                        calcMethod: product?.calcMethod ?? 'm2_unsorted',
+                        widthMm: item.widthMm,
+                        lengthMm: item.lengthMm,
+                        quantityPieces: item.quantity,
+                        unitPricePerM2: item.pricePerM2,
+                    };
+                })
+            );
+
+            const result = solveGrossRounding({
+                items: roundingItems,
+                vatPercent: offer.vatPercent,
+                roundingMethod: data.roundingMethod,
+                tolerance: data.tolerance,
+            });
+
+            return result;
+        }
+    );
+
+    // POST /api/offers/:id/apply-rounded - Apply rounded values to the offer
+    const ApplyRoundedSchema = z.object({
+        items: z.array(z.object({
+            productId: z.string(),
+            lengthMm: z.number().int().positive(),
+            quantityPieces: z.number().int().positive(),
+            unitPricePerM2: z.number().positive(),
+        })),
+    });
+
+    fastify.post<{ Params: { id: string } }>(
+        '/offers/:id/apply-rounded',
+        { preHandler: requireUnlocked },
+        async (request, reply) => {
+            const offer = await offerRepo.findById(request.params.id as UUID);
+            if (!offer) return reply.status(404).send({ error: 'Angebot nicht gefunden' });
+            if (offer.status !== 'draft') {
+                return reply.status(400).send({ error: 'Nur Entwürfe können angepasst werden' });
+            }
+
+            const data = ApplyRoundedSchema.parse(request.body);
+
+            // Rebuild offer items with the adjusted values
+            const items: OfferItem[] = await Promise.all(
+                data.items.map(async (item) => {
+                    return buildOfferItem({
+                        productId: item.productId,
+                        lengthMm: item.lengthMm,
+                        quantityPieces: item.quantityPieces,
+                        unitPricePerM2: item.unitPricePerM2,
+                    });
+                })
+            );
+
+            const vatPercent = offer.vatPercent;
+            const totals = calcOfferTotals(items, vatPercent);
+
+            // Save version history
+            const version = createOfferVersion(offer);
+            await offerRepo.saveVersion(offer.id, version);
+
+            // Update offer with new items and totals
+            const updatedOffer: Offer = {
+                ...offer,
+                items,
+                version: offer.version + 1,
+                ...totals,
+                updatedAt: new Date().toISOString() as ISODateTime,
+            };
+            await offerRepo.update(updatedOffer);
+
+            historyRepo.log('offer', offer.id, 'gross_rounded', {
+                oldGross: offer.grossSum,
+                newGross: totals.grossSum,
+            });
+
+            return formatOffer(updatedOffer);
         }
     );
 
@@ -672,42 +820,57 @@ export async function offerRoutes(fastify: FastifyInstance) {
             const offerId = request.params.id;
             const db = fastify.db;
 
-            // Find all document links for this offer
-            const links = db.query(
-                'SELECT id FROM document_links WHERE offer_id = ?',
-                [offerId]
-            ) as { id: string }[];
-
-            if (!links.length) {
+            // Find the document link for this offer (with encrypted_url for decryption)
+            const docLink = await fastify.documentLinkService.getExistingLink({ offerId });
+            if (!docLink) {
                 return { logs: [] };
             }
 
-            const linkIds = links.map((l: { id: string }) => l.id);
-            const placeholders = linkIds.map(() => '?').join(',');
+            // Extract the raw password from the encrypted URL to decrypt access logs
+            const decryptedUrl = fastify.documentLinkService.getDecryptedUrl(docLink);
+            const rawPassword = decryptedUrl ? extractPasswordFromUrl(decryptedUrl) : null;
 
             const logs = db.query(
-                `SELECT id, link_id, action, ip_address, user_agent, created_at
+                `SELECT id, link_id, action, ip_address, user_agent, encrypted_data, created_at
                  FROM link_access_log
-                 WHERE link_id IN (${placeholders})
+                 WHERE link_id = ?
                  ORDER BY created_at DESC`,
-                linkIds
+                [docLink.id]
             ) as Array<{
                 id: string;
                 link_id: string;
                 action: string;
-                ip_address: string;
-                user_agent: string;
+                ip_address: string | null;
+                user_agent: string | null;
+                encrypted_data: string | null;
                 created_at: string;
             }>;
 
             return {
-                logs: logs.map(log => ({
-                    id: log.id,
-                    action: log.action,
-                    ipAddress: log.ip_address,
-                    userAgent: log.user_agent,
-                    createdAt: log.created_at,
-                })),
+                logs: logs.map(log => {
+                    let ipAddress = log.ip_address || 'unknown';
+                    let userAgent = log.user_agent || 'unknown';
+
+                    // Try to decrypt encrypted_data if available
+                    if (log.encrypted_data && rawPassword) {
+                        const decrypted = linkDecrypt(log.encrypted_data, rawPassword);
+                        if (decrypted) {
+                            try {
+                                const parsed = JSON.parse(decrypted);
+                                ipAddress = parsed.ipAddress || ipAddress;
+                                userAgent = parsed.userAgent || userAgent;
+                            } catch { /* ignore parse errors */ }
+                        }
+                    }
+
+                    return {
+                        id: log.id,
+                        action: log.action,
+                        ipAddress,
+                        userAgent,
+                        createdAt: log.created_at,
+                    };
+                }),
             };
         }
     );

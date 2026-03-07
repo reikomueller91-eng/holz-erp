@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Download, CheckCircle, XCircle, FileText, ClipboardList, Edit, ArrowRight, Plus, Trash2, Send, UserPlus, Globe, Monitor, QrCode, Phone } from 'lucide-react'
+import { ArrowLeft, Download, CheckCircle, XCircle, FileText, ClipboardList, Edit, ArrowRight, Plus, Trash2, Send, UserPlus, Globe, Monitor, QrCode, Phone, Calculator } from 'lucide-react'
 import api from '../lib/api'
 import { formatCurrency } from '../lib/utils'
 import type { Offer, Product, Customer } from '../types'
@@ -25,6 +25,11 @@ export default function OfferDetail() {
   const [editValidUntil, setEditValidUntil] = useState('')
   const [editDesiredCompletionDate, setEditDesiredCompletionDate] = useState('')
   const [editLineItems, setEditLineItems] = useState<EditLineItem[]>([])
+  const [showRoundingModal, setShowRoundingModal] = useState(false)
+  const [roundingMethod, setRoundingMethod] = useState<'euro' | '5euro'>('euro')
+  const [roundingTolerance, setRoundingTolerance] = useState(0.03)
+  const [roundingResult, setRoundingResult] = useState<any>(null)
+  const [roundingLoading, setRoundingLoading] = useState(false)
 
   const { data: offer } = useQuery({
     queryKey: ['offer', id],
@@ -91,6 +96,35 @@ export default function OfferDetail() {
       alert(error.response?.data?.error || 'Fehler beim Versenden der E-Mail')
     }
   })
+
+  const applyRoundedMutation = useMutation({
+    mutationFn: (items: Array<{ productId: string; lengthMm: number; quantityPieces: number; unitPricePerM2: number }>) =>
+      api.post(`/offers/${id}/apply-rounded`, { items }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['offer', id] })
+      setShowRoundingModal(false)
+      setRoundingResult(null)
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.error || 'Fehler beim Anwenden der Abrundung')
+    }
+  })
+
+  const handleRoundGross = async () => {
+    setRoundingLoading(true)
+    setRoundingResult(null)
+    try {
+      const { data } = await api.post(`/offers/${id}/round-gross`, {
+        roundingMethod,
+        tolerance: roundingTolerance,
+      })
+      setRoundingResult(data)
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Fehler bei der Berechnung')
+    } finally {
+      setRoundingLoading(false)
+    }
+  }
 
   const assignCustomerMutation = useMutation({
     mutationFn: (customerId: string) => api.post(`/offers/${id}/assign-customer`, { customerId }),
@@ -373,7 +407,30 @@ export default function OfferDetail() {
               </tbody>
               <tfoot className="bg-gray-50">
                 <tr>
-                  <td colSpan={4} className="px-6 py-4 text-right font-medium text-gray-700">Gesamtsumme:</td>
+                  <td colSpan={4} className="px-6 py-2 text-right text-sm text-gray-600">Netto:</td>
+                  <td className="px-6 py-2 text-right text-gray-700">
+                    {formatCurrency(offer.netSum ?? 0)}
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={4} className="px-6 py-2 text-right text-sm text-gray-600">MwSt ({offer.vatPercent ?? 19}%):</td>
+                  <td className="px-6 py-2 text-right text-gray-700">
+                    {formatCurrency(offer.vatAmount ?? 0)}
+                  </td>
+                </tr>
+                <tr className="border-t border-gray-300">
+                  <td colSpan={3} className="px-6 py-4 text-right">
+                    {offer.status === 'draft' && (
+                      <button
+                        onClick={() => { setShowRoundingModal(true); setRoundingResult(null) }}
+                        className="btn-secondary text-sm flex items-center gap-1 ml-auto"
+                      >
+                        <Calculator className="w-4 h-4" />
+                        Brutto abrunden
+                      </button>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-right font-medium text-gray-700">Brutto:</td>
                   <td className="px-6 py-4 text-right font-bold text-gray-900 text-lg">
                     {formatCurrency(offer.totalAmount ?? offer.grossSum ?? 0)}
                   </td>
@@ -786,6 +843,136 @@ export default function OfferDetail() {
                 className="btn-secondary flex-1"
               >
                 Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Brutto Rounding Modal */}
+      {showRoundingModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
+            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+              <Calculator className="w-5 h-5" />
+              Brutto abrunden
+            </h2>
+
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Aktueller Bruttobetrag:</p>
+                <p className="text-xl font-bold text-gray-900">{formatCurrency(offer.totalAmount ?? offer.grossSum ?? 0)}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Abrundungsmethode</label>
+                  <select
+                    value={roundingMethod}
+                    onChange={(e) => setRoundingMethod(e.target.value as 'euro' | '5euro')}
+                    className="input w-full"
+                  >
+                    <option value="euro">Auf volle Euro (z.B. 147,67€ → 147€)</option>
+                    <option value="5euro">Auf volle 5 Euro (z.B. 147,67€ → 145€)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Toleranz (€)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max="1"
+                    value={roundingTolerance}
+                    onChange={(e) => setRoundingTolerance(parseFloat(e.target.value) || 0.03)}
+                    className="input w-full"
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={handleRoundGross}
+                disabled={roundingLoading}
+                className="btn-primary w-full flex items-center justify-center gap-2"
+              >
+                {roundingLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                    Berechne... (bis zu 3 Sekunden)
+                  </>
+                ) : (
+                  <>
+                    <Calculator className="w-4 h-4" />
+                    Berechnung starten
+                  </>
+                )}
+              </button>
+
+              {roundingResult && (
+                <div className={`p-4 rounded-lg border ${roundingResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  <p className={`text-sm font-medium ${roundingResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                    {roundingResult.message}
+                  </p>
+
+                  {roundingResult.success && (
+                    <div className="mt-3 space-y-2">
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <span className="text-gray-600">Neues Netto:</span>
+                        <span className="text-right font-medium">{formatCurrency(roundingResult.netSum)}</span>
+                        <span className="text-gray-600">Neue MwSt:</span>
+                        <span className="text-right font-medium">{formatCurrency(roundingResult.vatAmount)}</span>
+                        <span className="text-gray-600">Neues Brutto:</span>
+                        <span className="text-right font-bold text-lg">{formatCurrency(roundingResult.grossSum)}</span>
+                      </div>
+
+                      <div className="mt-3 pt-3 border-t border-green-200">
+                        <p className="text-xs text-gray-500 mb-2">Angepasste Positionen:</p>
+                        <div className="space-y-1">
+                          {roundingResult.items.map((item: any, idx: number) => {
+                            const orig = (offer.lineItems || [])[idx] as any
+                            const lengthChanged = orig && item.lengthMm !== orig.lengthMm
+                            const priceChanged = orig && Math.abs(item.unitPricePerM2 - orig.unitPricePerM2) > 0.001
+                            if (!lengthChanged && !priceChanged) return null
+                            return (
+                              <div key={idx} className="text-xs bg-white rounded p-2 border">
+                                <span className="font-medium">Pos {idx + 1}: </span>
+                                {lengthChanged && (
+                                  <span className="text-blue-600">
+                                    Länge: {(orig.lengthMm / 1000).toFixed(3)}m → {(item.lengthMm / 1000).toFixed(3)}m
+                                  </span>
+                                )}
+                                {lengthChanged && priceChanged && <span> | </span>}
+                                {priceChanged && (
+                                  <span className="text-purple-600">
+                                    Preis: €{orig.unitPricePerM2.toFixed(2)} → €{item.unitPricePerM2.toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-4 border-t mt-4">
+              {roundingResult?.success && (
+                <button
+                  onClick={() => applyRoundedMutation.mutate(roundingResult.items)}
+                  disabled={applyRoundedMutation.isPending}
+                  className="btn-primary flex-1"
+                >
+                  {applyRoundedMutation.isPending ? 'Übernehme...' : 'Übernehmen'}
+                </button>
+              )}
+              <button
+                onClick={() => { setShowRoundingModal(false); setRoundingResult(null) }}
+                className="btn-secondary flex-1"
+              >
+                {roundingResult?.success ? 'Abbrechen' : 'Schließen'}
               </button>
             </div>
           </div>

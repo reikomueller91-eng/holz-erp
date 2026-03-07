@@ -3,6 +3,7 @@ import { generateId } from '../../shared/utils/id';
 import type { UUID } from '../../shared/types';
 import type { IDatabase } from '../../application/ports/IDatabase';
 import { TelegramService } from '../../infrastructure/telegram/TelegramService';
+import { linkEncrypt } from '../../shared/utils/linkCrypto';
 import fs from 'fs';
 
 
@@ -13,18 +14,27 @@ function getClientIp(request: any): string {
         || 'unknown';
 }
 
-function logAccess(db: IDatabase, linkId: string, action: string, request: any): void {
+/**
+ * Log access to a document link. Sensitive data (IP, User-Agent) is encrypted
+ * with a key derived from the link password. Action stays in plaintext for filtering.
+ */
+function logAccess(db: IDatabase, linkId: string, action: string, request: any, rawPassword: string): void {
     const ip = getClientIp(request);
     const userAgent = request.headers['user-agent'] || 'unknown';
+
+    // Encrypt sensitive fields with the link password
+    const sensitiveData = JSON.stringify({ ipAddress: ip, userAgent });
+    const encryptedData = linkEncrypt(sensitiveData, rawPassword);
+
     db.run(
-        'INSERT INTO link_access_log (id, link_id, action, ip_address, user_agent, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [generateId(), linkId, action, ip, userAgent, new Date().toISOString()]
+        'INSERT INTO link_access_log (id, link_id, action, ip_address, user_agent, encrypted_data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [generateId(), linkId, action, null, null, encryptedData, new Date().toISOString()]
     );
 }
 
 export async function publicRoutes(fastify: FastifyInstance) {
     const { documentLinkService, notificationRepository: notificationRepo, systemConfigRepository: configRepo, db } = fastify;
-    const telegramService = new TelegramService(configRepo, fastify.cryptoService);
+    const telegramService = new TelegramService(configRepo);
 
     // GET /api/public/documents/:token - Serve PDF files directly
     fastify.get<{ Params: { token: string }; Querystring: { pw?: string } }>(
@@ -42,7 +52,7 @@ export async function publicRoutes(fastify: FastifyInstance) {
                 return reply.status(403).send({ error: 'Invalid or expired link' });
             }
 
-            logAccess(db, link.id, 'download_pdf', request);
+            logAccess(db, link.id, 'download_pdf', request, pw);
 
             let pdfPath: string | undefined;
             let filename = 'document.pdf';
@@ -104,7 +114,7 @@ export async function publicRoutes(fastify: FastifyInstance) {
                 return reply.status(403).send({ error: 'Invalid or expired link' });
             }
 
-            logAccess(db, link.id, 'view_offer', request);
+            logAccess(db, link.id, 'view_offer', request, pw);
 
             // Read public data snapshot (stored unencrypted when PDF was generated - no system unlock needed)
             if (!link.publicData) {
@@ -212,7 +222,7 @@ export async function publicRoutes(fastify: FastifyInstance) {
                 return reply.status(403).send({ error: 'Invalid or expired link' });
             }
 
-            logAccess(db, link.id, `respond_${response}`, request);
+            logAccess(db, link.id, `respond_${response}`, request, pw);
 
             // Read offer status directly from DB (unencrypted columns - no system unlock needed)
             const offerRow = db.queryOne<{

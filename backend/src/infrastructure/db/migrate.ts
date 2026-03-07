@@ -286,11 +286,18 @@ const MIGRATIONS: Migration[] = [
         entity_type TEXT NOT NULL,       -- 'offer', 'order', 'invoice'
         entity_id TEXT NOT NULL,
         event TEXT NOT NULL,             -- 'created', 'sent', 'accepted', etc.
-        details TEXT,                    -- optional JSON with extra info
+        details TEXT,                    -- optional JSON with extra info (encrypted with master key)
         created_at TEXT NOT NULL         -- exact ISO timestamp
       );
       CREATE INDEX IF NOT EXISTS idx_document_history_entity ON document_history(entity_type, entity_id);
       CREATE INDEX IF NOT EXISTS idx_document_history_created_at ON document_history(created_at);
+    `,
+  },
+  {
+    name: '015_encrypt_access_logs',
+    up: `
+      -- Add encrypted_data column to link_access_log for storing ip+user_agent encrypted with link password
+      ALTER TABLE link_access_log ADD COLUMN encrypted_data TEXT;
     `,
   },
 ];

@@ -1,5 +1,4 @@
 import type { ISystemConfigRepository } from '../repositories/SystemConfigRepository';
-import type { ICryptoService } from '../../application/ports/ICryptoService';
 
 /**
  * Sends Telegram Bot API messages for real-time notifications.
@@ -7,33 +6,23 @@ import type { ICryptoService } from '../../application/ports/ICryptoService';
 export class TelegramService {
   constructor(
     private configRepo: ISystemConfigRepository,
-    private crypto: ICryptoService,
   ) {}
 
   /**
-   * Send a Telegram message. Silently fails if token/chatId are not configured.
+   * Send a Telegram message. Silently fails if not enabled or token/chatId are not configured.
    */
   async sendMessage(text: string): Promise<boolean> {
     try {
-      const tokenEncrypted = await this.configRepo.getValue('telegram_bot_token');
+      const enabled = await this.configRepo.getValue('telegram_enabled');
+      if (enabled !== 'true') {
+        return false; // Telegram disabled in settings
+      }
+
+      const botToken = await this.configRepo.getValue('telegram_bot_token');
       const chatId = await this.configRepo.getValue('telegram_chat_id');
 
-      if (!tokenEncrypted || !chatId) {
+      if (!botToken || !chatId) {
         return false; // Not configured – skip silently
-      }
-
-      // Decrypt the bot token
-      let botToken: string;
-      try {
-        const parsed = JSON.parse(tokenEncrypted);
-        botToken = this.crypto.decrypt(parsed);
-      } catch {
-        // Fallback: might be stored in plaintext
-        botToken = tokenEncrypted;
-      }
-
-      if (!botToken) {
-        return false;
       }
 
       const url = `https://api.telegram.org/bot${botToken}/sendMessage`;

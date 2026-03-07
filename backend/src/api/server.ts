@@ -61,7 +61,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const systemConfigRepository = new SystemConfigRepository(db);
   const documentLinkRepository = new DocumentLinkRepository(db);
   const notificationRepository = new NotificationRepository(db);
-  const documentHistoryRepository = new DocumentHistoryRepository(db);
+  const documentHistoryRepository = new DocumentHistoryRepository(db, cryptoService);
 
   // ─── Application Services ──────────────────────────────────────
   const customerService = new CustomerService(customerRepository);

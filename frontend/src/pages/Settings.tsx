@@ -11,6 +11,10 @@ export default function Settings() {
   const [sellerAddress, setSellerAddress] = useState('')
   const [vatPercent, setVatPercent] = useState<number>(19)
   const [taxNumber, setTaxNumber] = useState('')
+  const [ustId, setUstId] = useState('')
+  const [bankAccountHolder, setBankAccountHolder] = useState('')
+  const [bankIban, setBankIban] = useState('')
+  const [bankBic, setBankBic] = useState('')
   const [deliveryNote, setDeliveryNote] = useState('Der Kunde ist für die Ladungssicherung verantwortlich.')
   const [mainDomain, setMainDomain] = useState('http://localhost:3000')
   const [smtpHost, setSmtpHost] = useState('')
@@ -19,8 +23,8 @@ export default function Settings() {
   const [smtpPassword, setSmtpPassword] = useState('')
   const [smtpPasswordChanged, setSmtpPasswordChanged] = useState(false)
   const [offerLinkValidityDays, setOfferLinkValidityDays] = useState<number>(14)
+  const [telegramEnabled, setTelegramEnabled] = useState(false)
   const [telegramBotToken, setTelegramBotToken] = useState('')
-  const [telegramBotTokenChanged, setTelegramBotTokenChanged] = useState(false)
   const [telegramChatId, setTelegramChatId] = useState('')
   const [addressMessage, setAddressMessage] = useState('')
   const [wipeStep, setWipeStep] = useState(0)
@@ -50,6 +54,10 @@ export default function Settings() {
         setVatPercent(data.vatPercent)
       }
       if (data && data.taxNumber !== undefined) setTaxNumber(data.taxNumber)
+      if (data && data.ustId !== undefined) setUstId(data.ustId)
+      if (data && data.bankAccountHolder !== undefined) setBankAccountHolder(data.bankAccountHolder)
+      if (data && data.bankIban !== undefined) setBankIban(data.bankIban)
+      if (data && data.bankBic !== undefined) setBankBic(data.bankBic)
       if (data && data.deliveryNote !== undefined) setDeliveryNote(data.deliveryNote)
       if (data && data.mainDomain) setMainDomain(data.mainDomain)
       if (data && data.smtpHost) setSmtpHost(data.smtpHost)
@@ -62,12 +70,8 @@ export default function Settings() {
         setSmtpPasswordChanged(false)
       }
       if (data && data.offerLinkValidityDays !== undefined) setOfferLinkValidityDays(data.offerLinkValidityDays)
-      if (data && data.telegramBotToken && data.telegramBotToken !== '••••••••') {
-        setTelegramBotToken(data.telegramBotToken)
-      } else {
-        setTelegramBotToken('')
-        setTelegramBotTokenChanged(false)
-      }
+      if (data && data.telegramEnabled !== undefined) setTelegramEnabled(data.telegramEnabled)
+      if (data && data.telegramBotToken) setTelegramBotToken(data.telegramBotToken)
       if (data && data.telegramChatId) setTelegramChatId(data.telegramChatId)
       if (data && data.hasLogo !== undefined) setHasLogo(data.hasLogo)
       return data
@@ -112,21 +116,23 @@ export default function Settings() {
         sellerAddress,
         vatPercent,
         taxNumber,
+        ustId,
+        bankAccountHolder,
+        bankIban,
+        bankBic,
         deliveryNote,
         mainDomain,
         smtpHost,
         smtpPort,
         smtpUser,
         offerLinkValidityDays,
+        telegramEnabled,
+        telegramBotToken,
         telegramChatId,
       }
       // Only send password if user actually changed it
       if (smtpPasswordChanged) {
         payload.smtpPassword = smtpPassword
-      }
-      // Only send telegram token if user actually changed it
-      if (telegramBotTokenChanged) {
-        payload.telegramBotToken = telegramBotToken
       }
       await api.put('/settings', payload)
     },
@@ -220,6 +226,56 @@ export default function Settings() {
               placeholder="z.B. 123/456/7890"
             />
             <p className="text-xs text-gray-500 mt-1">Erscheint auf allen generierten PDF-Dokumenten im Fußbereich.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              USt-IdNr.
+            </label>
+            <input
+              type="text"
+              value={ustId}
+              onChange={(e) => setUstId(e.target.value)}
+              className="input max-w-full"
+              placeholder="z.B. DE123456789 (optional)"
+            />
+            <p className="text-xs text-gray-500 mt-1">Wird nur angezeigt, wenn ausgefüllt.</p>
+          </div>
+
+          {/* Bank Details */}
+          <div className="border-t pt-4 mt-2">
+            <h4 className="text-sm font-semibold text-gray-700 mb-3">Bankverbindung (erscheint auf PDFs)</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Kontoinhaber</label>
+                <input
+                  type="text"
+                  value={bankAccountHolder}
+                  onChange={(e) => setBankAccountHolder(e.target.value)}
+                  className="input w-full"
+                  placeholder="Max Mustermann"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">IBAN</label>
+                <input
+                  type="text"
+                  value={bankIban}
+                  onChange={(e) => setBankIban(e.target.value)}
+                  className="input w-full"
+                  placeholder="DE89 3704 0044 0532 0130 00"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">BIC</label>
+                <input
+                  type="text"
+                  value={bankBic}
+                  onChange={(e) => setBankBic(e.target.value)}
+                  className="input w-full"
+                  placeholder="COBADEFFXXX"
+                />
+              </div>
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -399,37 +455,50 @@ export default function Settings() {
 
           {/* Telegram Bot Settings */}
           <div className="border-t border-gray-200 pt-6 mt-6">
-            <h3 className="text-md font-semibold mb-3">Telegram Benachrichtigungen</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              Erhalte sofortige Benachrichtigungen per Telegram, wenn ein Kunde ein Angebot über den QR-Code annimmt oder ablehnt.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex items-center justify-between mb-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Bot Token</label>
-                <input
-                  type="password"
-                  value={telegramBotToken}
-                  onChange={(e) => {
-                    setTelegramBotToken(e.target.value)
-                    setTelegramBotTokenChanged(true)
-                  }}
-                  className="input"
-                  placeholder={telegramBotTokenChanged ? '' : '(verschlüsselt gespeichert)'}
-                />
-                <p className="text-xs text-gray-500 mt-1">Vom @BotFather erhaltener Token. Wird verschlüsselt gespeichert.</p>
+                <h3 className="text-md font-semibold">Telegram Benachrichtigungen</h3>
+                <p className="text-sm text-gray-500">
+                  Erhalte sofortige Benachrichtigungen per Telegram, wenn ein Kunde ein Angebot über den QR-Code annimmt oder ablehnt.
+                </p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Chat-ID</label>
+              <label className="relative inline-flex items-center cursor-pointer">
                 <input
-                  type="text"
-                  value={telegramChatId}
-                  onChange={(e) => setTelegramChatId(e.target.value)}
-                  className="input"
-                  placeholder="z.B. 123456789"
+                  type="checkbox"
+                  checked={telegramEnabled}
+                  onChange={(e) => setTelegramEnabled(e.target.checked)}
+                  className="sr-only peer"
                 />
-                <p className="text-xs text-gray-500 mt-1">Deine persönliche Chat-ID oder eine Gruppen-ID.</p>
-              </div>
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                <span className="ml-2 text-sm font-medium text-gray-700">{telegramEnabled ? 'Aktiv' : 'Inaktiv'}</span>
+              </label>
             </div>
+            {telegramEnabled && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Bot Token</label>
+                  <input
+                    type="text"
+                    value={telegramBotToken}
+                    onChange={(e) => setTelegramBotToken(e.target.value)}
+                    className="input"
+                    placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Vom @BotFather erhaltener Token.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Chat-ID</label>
+                  <input
+                    type="text"
+                    value={telegramChatId}
+                    onChange={(e) => setTelegramChatId(e.target.value)}
+                    className="input"
+                    placeholder="z.B. 123456789"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Deine persönliche Chat-ID oder eine Gruppen-ID.</p>
+                </div>
+              </div>
+            )}
           </div>
 
           <button

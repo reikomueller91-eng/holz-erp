@@ -1,10 +1,18 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
+import { keyStore } from '../../infrastructure/crypto/KeyStore';
 
-// Simple auth check that ensures system is unlocked
-export const requireUnlocked = (_request: FastifyRequest, _reply: FastifyReply, done: (err?: Error) => void) => {
-  // In a real implementation, this would check if the system is unlocked
-  // For now, we assume it's always unlocked for development
-  // TODO: Implement proper auth check with KeyStore
+/**
+ * Fastify preHandler hook that ensures the system is unlocked.
+ * Rejects with 423 Locked if the master key is not loaded.
+ */
+export const requireUnlocked = (_request: FastifyRequest, reply: FastifyReply, done: (err?: Error) => void) => {
+  if (!keyStore.isUnlocked()) {
+    reply.status(423).send({
+      error: 'SYSTEM_LOCKED',
+      message: 'System ist gesperrt. Bitte zuerst mit dem Master-Passwort entsperren.',
+    });
+    return;
+  }
   done();
 };
 

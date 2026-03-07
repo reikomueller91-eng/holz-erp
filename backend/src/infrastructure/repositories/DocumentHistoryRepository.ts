@@ -1,4 +1,5 @@
 import type { IDatabase } from '../../application/ports/IDatabase';
+import type { ICryptoService } from '../../application/ports/ICryptoService';
 import { generateId } from '../../shared/utils/id';
 
 export type EntityType = 'offer' | 'order' | 'invoice';
@@ -20,7 +21,8 @@ export type HistoryEvent =
   | 'pdf_generated'
   | 'email_sent'
   | 'customer_assigned'
-  | 'picked_up';
+  | 'picked_up'
+  | 'gross_rounded';
 
 export interface DocumentHistoryEntry {
   id: string;
@@ -47,9 +49,27 @@ export interface IDocumentHistoryRepository {
 }
 
 export class DocumentHistoryRepository implements IDocumentHistoryRepository {
-  constructor(private db: IDatabase) {}
+  constructor(
+    private db: IDatabase,
+    private crypto?: ICryptoService,
+  ) {}
 
   log(entityType: EntityType, entityId: string, event: HistoryEvent, details?: Record<string, unknown>): void {
+    let serializedDetails: string | null = null;
+    if (details) {
+      // Encrypt details with master key if CryptoService is available and unlocked
+      if (this.crypto) {
+        try {
+          serializedDetails = this.crypto.serializeField(details);
+        } catch {
+          // CryptoService locked or error — fall back to plaintext
+          serializedDetails = JSON.stringify(details);
+        }
+      } else {
+        serializedDetails = JSON.stringify(details);
+      }
+    }
+
     this.db.run(
       `INSERT INTO document_history (id, entity_type, entity_id, event, details, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
       [
@@ -57,7 +77,7 @@ export class DocumentHistoryRepository implements IDocumentHistoryRepository {
         entityType,
         entityId,
         event,
-        details ? JSON.stringify(details) : null,
+        serializedDetails,
         new Date().toISOString(),
       ]
     );
@@ -68,7 +88,7 @@ export class DocumentHistoryRepository implements IDocumentHistoryRepository {
       `SELECT * FROM document_history WHERE entity_type = ? AND entity_id = ? ORDER BY created_at ASC`,
       [entityType, entityId]
     );
-    return rows.map(this.rowToEntry);
+    return rows.map(row => this.rowToEntry(row));
   }
 
   /**
@@ -110,12 +130,28 @@ export class DocumentHistoryRepository implements IDocumentHistoryRepository {
   }
 
   private rowToEntry(row: DocumentHistoryRow): DocumentHistoryEntry {
+    let details = row.details || undefined;
+
+    // Try to decrypt details if encrypted (starts with {"v":1,"alg":...)
+    if (details && this.crypto) {
+      try {
+        const parsed = JSON.parse(details);
+        if (parsed.v === 1 && parsed.alg === 'aes-256-gcm') {
+          // It's encrypted — decrypt it
+          const decrypted = this.crypto.decrypt(parsed);
+          details = decrypted;
+        }
+      } catch {
+        // Not encrypted or decryption failed — return as-is (legacy plaintext)
+      }
+    }
+
     return {
       id: row.id,
       entityType: row.entity_type as EntityType,
       entityId: row.entity_id,
       event: row.event as HistoryEvent,
-      details: row.details || undefined,
+      details,
       createdAt: row.created_at,
     };
   }

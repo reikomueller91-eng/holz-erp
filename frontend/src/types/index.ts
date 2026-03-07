@@ -56,6 +56,8 @@ export interface Offer {
   pdfPath?: string
   totalAmount?: number
   netSum?: number
+  vatPercent?: number
+  vatAmount?: number
   grossSum?: number
   customerResponse?: 'accepted' | 'rejected' | null
   customerResponseAt?: string | null

@@ -358,8 +358,23 @@ export async function orderRoutes(fastify: FastifyInstance) {
       const sellerAddress = await configRepo.getValue('seller_address') || DEFAULT_SELLER_ADDRESS;
       const taxNumber = await configRepo.getValue('tax_number') || undefined;
       const deliveryNote = await configRepo.getValue('delivery_note') || undefined;
+      const ustId = await configRepo.getValue('ust_id') || undefined;
+      const bankAccountHolder = await configRepo.getValue('bank_account_holder') || undefined;
+      const bankIban = await configRepo.getValue('bank_iban') || undefined;
+      const bankBic = await configRepo.getValue('bank_bic') || undefined;
+      // Build product name map for PDF
+      const productNameMap = new Map<string, { name: string; calcMethod: string }>();
+      for (const item of order.items) {
+        if (!productNameMap.has(item.productId)) {
+          try {
+            const product = await productService.getById(item.productId as any);
+            productNameMap.set(item.productId, { name: product.name, calcMethod: product.calcMethod });
+          } catch { /* product not found, fallback in PDF */ }
+        }
+      }
+
       try {
-        const { filePath } = await pdfService.generateOrderPDF(order, sellerAddress, taxNumber, deliveryNote, documentLinkUrl, await configRepo.getValue('logo_path') || undefined);
+        const { filePath } = await pdfService.generateOrderPDF(order, sellerAddress, taxNumber, deliveryNote, documentLinkUrl, await configRepo.getValue('logo_path') || undefined, productNameMap as any, { taxNumber, ustId, bankAccountHolder, bankIban, bankBic });
         order.pdfPath = filePath;
         await orderRepo.update(order);
         historyRepo.log('order', order.id, 'pdf_generated', { orderNumber: order.orderNumber });

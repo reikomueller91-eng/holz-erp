@@ -1,15 +1,26 @@
-angebote sollen auch den bruttopreis zeigen. netto, mwst, brutto. der bruttopreis soll hierbei abgerundet werden auf volle euro oder aber volle 5 euro beträge. so kann ein preis von 12,67€ auf 12€ abgerundet werden. ein wert von 147,67€ auf 145€ abgerundet werden. hierfür müssen die preise der einzelnen positionen als auch die längen etc dynamisch durchpropiert werden, bis die endsumme erreicht ist. es müssen werte eventuell erhöht oder dynamisch verringert werden, bis der betrag ca. +-0,03 Euro stimmt. diese endsumme soll dann als bruttopreis angezeigt werden.
+eine erstelle Rechnung muss wieder rückgängig gemacht werden. aber vollsätndig durch herauslöschen aus der db. als wenn diese nie existiert hat. auch muss es eine option zum umschalten von der rechnungssuche auf der rechnungen seite tab geben. somit können nicht abgehölte waren nicht verechnet werden. es darf die rechnungsnummer somit auch erneut vergeben werden.
 
 
 Das template muss über das frontend veränderbar sein. hierzu muss ein templatesystem verwendet werden.
  
-
-
 verknüpfen mit einem kalender bzw kalenderplanungstool um die produktion abschätzen zu können.
 
-
-# wenn ein kunde ein angebot über den public teil annimt soll zusätzlich sofort ein benachrichtigung via telegram über einen bot an mich gesendet werden. in den settings muss hierzu der der access token hinterlegt werden können.
-
-eine erstelle Rechnung muss wieder rückgängig gemacht werden. aber vollsätndig durch herauslöschen aus der db. als wenn diese nie existiert hat. auch muss es eine option zum umschalten von der rechnungssuche auf der rechnungen seite tab geben. somit können nicht abgehölte waren nicht verechnet werden. es darf die rechnungsnummer somit auch erneut vergeben werden.
-
 aktuellste preis eines jeden produktes muss in einer unverschlüsselten tabelle existieren.
+
+
+
+#überprüfe ob die folgende idee klappt:
+Die kunden aktivitäten bzw meine aktivitäten müssen auch in der db verschlüsselt werden. die kundenaktivitäten können mit dem pw aus dem link verschlüsselt werden. ich kann das item aus der db mit dem master key entschlüsseln, den link ermitteln und dann die aktivitäten des kunden mit diesen entschlüsseln.
+
+
+#das backup ziehen ist ohne login möglich. dies darf nicht sein. überprüfe ob es weiter funktionen außer die public elemente gibt, die ohne login erreichbar sein. fixe dieses problem. checke hier insbesondere den db wipe.
+
+#in der email an den kunden muss der der direktlink, der für den QR code verwendet wird, enthalten sein. auch soll der kunde mit direkten namen angesprochen werden. es soll weiterhin aufgeführt sein wie lange die links aktiviert ist. überprüfe hierzu die bereits implementierten bedinungen für rechnungen und angebote an und gleiche diese für den text an. 
+
+
+
+anderen server, der sich nur um smtp versand sowie telegram versand kümmert. security trennung. kommunikation zwischen den beiden servern via schnittstelle. somit wenn der frontend server kompromitiret wird, muss erst der backendserver und dann der versneder server werden, bevor daten wie passwörter oder tockens gestohlen werden können. klare trennung von zuständigkeiten.
+
+die preise in der angebotserstellung sind häufig um 0.01 cent höher als bei der rechnungserstellung. überprüfe die rundungsproblematik überall wo es implementiert wurde. eventuell gibt es noch ein anderes problem?
+
+preisänderungen, gebe ein feld an wieso sich der preis für diesen kunden geändert hat. zb sonderangebot oder auch was anders. dies soll in der historie auftreten, insbesonder wenn es ein spezialpreis ist. 

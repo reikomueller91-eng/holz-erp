@@ -13,6 +13,10 @@ const UpdateSettingsSchema = z.object({
     sellerAddress: z.string().min(1, "Absenderadresse darf nicht leer sein").optional(),
     vatPercent: z.number().min(0).max(100).optional(),
     taxNumber: z.string().optional(),
+    ustId: z.string().optional(),
+    bankAccountHolder: z.string().optional(),
+    bankIban: z.string().optional(),
+    bankBic: z.string().optional(),
     deliveryNote: z.string().optional(),
     smtpHost: z.string().optional(),
     smtpPort: z.number().optional(),
@@ -20,6 +24,7 @@ const UpdateSettingsSchema = z.object({
     smtpPassword: z.string().optional(),
     mainDomain: z.string().url("Domain muss eine gültige URL sein").optional().or(z.literal('')),
     offerLinkValidityDays: z.number().min(1).max(365).optional(),
+    telegramEnabled: z.boolean().optional(),
     telegramBotToken: z.string().optional(),
     telegramChatId: z.string().optional(),
 });
@@ -56,12 +61,15 @@ export function buildSettingsRoutes(configRepo: ISystemConfigRepository): Fastif
                 const hasSmtpPassword = !!config['smtp_password'];
                 const logoPath = config['logo_path'] || '';
                 const hasLogo = !!(logoPath && fs.existsSync(logoPath));
-                const hasTelegramBotToken = !!config['telegram_bot_token'];
 
                 return {
                     sellerAddress: config['seller_address'] || DEFAULT_SELLER_ADDRESS,
                     vatPercent: config['vat_percent'] ? parseFloat(config['vat_percent']) : 19,
                     taxNumber: config['tax_number'] || '',
+                    ustId: config['ust_id'] || '',
+                    bankAccountHolder: config['bank_account_holder'] || '',
+                    bankIban: config['bank_iban'] || '',
+                    bankBic: config['bank_bic'] || '',
                     deliveryNote: config['delivery_note'] || 'Der Kunde ist für die Ladungssicherung verantwortlich.',
                     smtpHost: config['smtp_host'] || '',
                     smtpPort: config['smtp_port'] ? parseInt(config['smtp_port'], 10) : 587,
@@ -69,7 +77,8 @@ export function buildSettingsRoutes(configRepo: ISystemConfigRepository): Fastif
                     smtpPassword: hasSmtpPassword ? DUMMY_PASSWORD : '',
                     mainDomain: config['main_domain'] || '',
                     offerLinkValidityDays: config['offer_link_validity_days'] ? parseInt(config['offer_link_validity_days'], 10) : 14,
-                    telegramBotToken: hasTelegramBotToken ? DUMMY_PASSWORD : '',
+                    telegramEnabled: config['telegram_enabled'] === 'true',
+                    telegramBotToken: config['telegram_bot_token'] || '',
                     telegramChatId: config['telegram_chat_id'] || '',
                     hasLogo,
                 };
@@ -90,6 +99,18 @@ export function buildSettingsRoutes(configRepo: ISystemConfigRepository): Fastif
                 }
                 if (data.taxNumber !== undefined) {
                     await configRepo.setValue('tax_number', data.taxNumber);
+                }
+                if (data.ustId !== undefined) {
+                    await configRepo.setValue('ust_id', data.ustId);
+                }
+                if (data.bankAccountHolder !== undefined) {
+                    await configRepo.setValue('bank_account_holder', data.bankAccountHolder);
+                }
+                if (data.bankIban !== undefined) {
+                    await configRepo.setValue('bank_iban', data.bankIban);
+                }
+                if (data.bankBic !== undefined) {
+                    await configRepo.setValue('bank_bic', data.bankBic);
                 }
                 if (data.deliveryNote !== undefined) {
                     await configRepo.setValue('delivery_note', data.deliveryNote);
@@ -119,13 +140,12 @@ export function buildSettingsRoutes(configRepo: ISystemConfigRepository): Fastif
                 if (data.offerLinkValidityDays !== undefined) {
                     await configRepo.setValue('offer_link_validity_days', String(data.offerLinkValidityDays));
                 }
-                // Telegram Bot Token (encrypted, like SMTP password)
-                if (data.telegramBotToken !== undefined && data.telegramBotToken !== DUMMY_PASSWORD) {
-                    if (data.telegramBotToken === '') {
-                        await configRepo.setValue('telegram_bot_token', '');
-                    } else {
-                        await configRepo.setValue('telegram_bot_token', encryptSensitive(crypto, data.telegramBotToken));
-                    }
+                // Telegram settings (token stored plaintext – must be readable without system unlock for public routes)
+                if (data.telegramEnabled !== undefined) {
+                    await configRepo.setValue('telegram_enabled', String(data.telegramEnabled));
+                }
+                if (data.telegramBotToken !== undefined) {
+                    await configRepo.setValue('telegram_bot_token', data.telegramBotToken);
                 }
                 if (data.telegramChatId !== undefined) {
                     await configRepo.setValue('telegram_chat_id', data.telegramChatId);

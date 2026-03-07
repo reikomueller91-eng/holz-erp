@@ -19,7 +19,7 @@ export class DocumentLinkService {
      */
     async createLink(params: { offerId?: string; orderId?: string; invoiceId?: string }): Promise<{ link: DocumentLink; rawPassword: string }> {
         const token = crypto.randomBytes(32).toString('hex');
-        const rawPassword = crypto.randomBytes(8).toString('hex'); // 16-char hex password
+        const rawPassword = crypto.randomBytes(32).toString('hex'); // 64-char hex password (32 bytes entropy)
 
         // Hash the password securely
         const passwordHash = await argon2.hash(rawPassword);

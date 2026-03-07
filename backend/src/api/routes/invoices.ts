@@ -6,6 +6,7 @@ import { transitionInvoice, finalizeInvoice, createInvoiceVersion, calcInvoiceTo
 import type { InvoiceStatus, UUID } from '../../shared/types';
 import { requireUnlocked } from '../middleware/auth';
 import { generateId } from '../../shared/utils/id';
+import { linkDecrypt, extractPasswordFromUrl } from '../../shared/utils/linkCrypto';
 import { EmailSenderService } from '../../application/services/EmailSenderService';
 import type { ProductService } from '../../application/services/ProductService';
 import { DEFAULT_SELLER_ADDRESS } from '../../shared/constants';
@@ -141,11 +142,40 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       }
 
       try {
+        // Try to get the secure link for the invoice
+        let secureLink: string | null = null;
+        let linkExpiresAt: string | null = null;
+        const docLink = await documentLinkService.getExistingLink({ invoiceId: invoice.id });
+        if (docLink) {
+          secureLink = documentLinkService.getDecryptedUrl(docLink);
+          linkExpiresAt = docLink.expiresAt || null;
+        }
+
+        // Format validity date
+        const validityText = linkExpiresAt
+          ? new Date(linkExpiresAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+          : null;
+
+        // Build personalized text
+        const greeting = customer?.name ? `Sehr geehrte/r ${customer.name}` : 'Sehr geehrte Damen und Herren';
+
+        const linkBlock = secureLink
+          ? `\n\nSie können Ihre Rechnung auch online einsehen:\n${secureLink}${validityText ? `\n\nDer Link ist gültig bis zum ${validityText}.` : ''}`
+          : '';
+
+        const plainText = `${greeting},\n\nanbei erhalten Sie die Rechnung ${invoice.invoiceNumber}.${linkBlock}\n\nMit freundlichen Grüßen`;
+
+        const linkBlockHtml = secureLink
+          ? `<p>Sie können Ihre Rechnung auch online einsehen:<br><a href="${secureLink}">${secureLink}</a></p>${validityText ? `<p><small>Der Link ist gültig bis zum ${validityText}.</small></p>` : ''}`
+          : '';
+
+        const htmlText = `<p>${greeting},</p><p>anbei erhalten Sie die Rechnung ${invoice.invoiceNumber}.</p>${linkBlockHtml}<p>Mit freundlichen Grüßen</p>`;
+
         await emailService.sendEmailWithAttachment(
           toEmail,
           `Rechnung ${invoice.invoiceNumber}`,
-          `Sehr geehrte Damen und Herren,\n\nanbei erhalten Sie die Rechnung ${invoice.invoiceNumber}.\n\nMit freundlichen Grüßen`,
-          `<p>Sehr geehrte Damen und Herren,</p><p>anbei erhalten Sie die Rechnung ${invoice.invoiceNumber}.</p><p>Mit freundlichen Grüßen</p>`,
+          plainText,
+          htmlText,
           anyInvoice.pdfPath,
           `Rechnung-${invoice.invoiceNumber}.pdf`
         );
@@ -186,15 +216,28 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       // So we must convert order gross → net before creating invoice line items.
       const vatFactor = 1 + order.vatPercent / 100;
 
+      // Lookup product names for descriptions
+      const productNames = new Map<string, string>();
+      for (const item of order.items) {
+        if (!productNames.has(item.productId)) {
+          try {
+            const product = await (fastify.productService as ProductService).getById(item.productId as UUID);
+            productNames.set(item.productId, product.name);
+          } catch { /* fallback below */ }
+        }
+      }
+
       const lineItems: InvoiceLineItem[] = order.items.map((item, index) => {
         const netUnitPrice = Math.round((item.pricePerM2 / vatFactor) * 100) / 100;
         const netTotal = Math.round((item.netTotal / vatFactor) * 100) / 100;
+        const productName = productNames.get(item.productId) || 'Holzprodukt';
+        const lengthM = (item.lengthMm / 1000).toFixed(3).replace('.', ',');
         return {
           id: generateId() as UUID,
           invoiceId: '' as UUID,
           orderItemId: item.id,
           productId: item.productId,
-          description: `Pos ${index + 1}: ${item.widthMm}x${item.heightMm}mm, ${item.lengthMm}mm lang`,
+          description: `${productName}, ${lengthM} m`,
           quantity: item.quantity,
           unit: 'Stk',
           unitPrice: netUnitPrice,
@@ -461,6 +504,10 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       try {
         const taxNumber = await configRepo.getValue('tax_number') || undefined;
         const deliveryNote = await configRepo.getValue('delivery_note') || undefined;
+        const ustId = await configRepo.getValue('ust_id') || undefined;
+        const bankAccountHolder = await configRepo.getValue('bank_account_holder') || undefined;
+        const bankIban = await configRepo.getValue('bank_iban') || undefined;
+        const bankBic = await configRepo.getValue('bank_bic') || undefined;
 
         // Manage Document Link
         const mainDomain = await configRepo.getValue('main_domain') || 'http://localhost:3000';
@@ -509,8 +556,20 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
 
         const documentLinkUrl = secureLink;
 
+        // Build product name map for PDF
+        const productService = fastify.productService as ProductService;
+        const productNameMap = new Map<string, { name: string; calcMethod: string }>();
+        for (const item of invoice.lineItems) {
+          if (item.productId && !productNameMap.has(item.productId)) {
+            try {
+              const product = await productService.getById(item.productId as any);
+              productNameMap.set(item.productId, { name: product.name, calcMethod: product.calcMethod });
+            } catch { /* product not found, fallback in PDF */ }
+          }
+        }
+
         const logoPath = await configRepo.getValue('logo_path') || undefined;
-        const { filePath, fileName } = await pdfService.generateInvoicePDF(invoice, taxNumber, deliveryNote, documentLinkUrl, logoPath);
+        const { filePath, fileName } = await pdfService.generateInvoicePDF(invoice, taxNumber, deliveryNote, documentLinkUrl, logoPath, productNameMap as any, { taxNumber, ustId, bankAccountHolder, bankIban, bankBic });
 
         // Store public data snapshot for customer portal (invoice grossSum for correct display)
         if (docLink) {
@@ -645,17 +704,38 @@ export async function invoiceRoutes(fastify: FastifyInstance) {
       }
 
       if (docLink) {
-        const logs = db.query<{ id: string; action: string; ip_address: string; user_agent: string; created_at: string }>(
-          `SELECT id, action, ip_address, user_agent, created_at FROM link_access_log WHERE link_id = ? ORDER BY created_at ASC`,
+        // Extract the raw password from the encrypted URL to decrypt access logs
+        const decryptedUrl = documentLinkService.getDecryptedUrl(docLink);
+        const rawPassword = decryptedUrl ? extractPasswordFromUrl(decryptedUrl) : null;
+
+        const logs = db.query<{ id: string; action: string; ip_address: string | null; user_agent: string | null; encrypted_data: string | null; created_at: string }>(
+          `SELECT id, action, ip_address, user_agent, encrypted_data, created_at FROM link_access_log WHERE link_id = ? ORDER BY created_at ASC`,
           [docLink.id]
         );
-        accessLogs = logs.map(log => ({
-          id: log.id,
-          action: log.action,
-          ipAddress: log.ip_address,
-          userAgent: log.user_agent,
-          createdAt: log.created_at,
-        }));
+        accessLogs = logs.map(log => {
+          let ipAddress = log.ip_address || 'unknown';
+          let userAgent = log.user_agent || 'unknown';
+
+          // Try to decrypt encrypted_data if available
+          if (log.encrypted_data && rawPassword) {
+            const decrypted = linkDecrypt(log.encrypted_data, rawPassword);
+            if (decrypted) {
+              try {
+                const parsed = JSON.parse(decrypted);
+                ipAddress = parsed.ipAddress || ipAddress;
+                userAgent = parsed.userAgent || userAgent;
+              } catch { /* ignore parse errors */ }
+            }
+          }
+
+          return {
+            id: log.id,
+            action: log.action,
+            ipAddress,
+            userAgent,
+            createdAt: log.created_at,
+          };
+        });
       }
 
       // Also gather context: linked offer/order info

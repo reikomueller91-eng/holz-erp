@@ -7,10 +7,24 @@ import type { Invoice } from '../../domain/invoice/Invoice';
 import type { Offer } from '../../domain/offer/Offer';
 import type { Order } from '../../domain/order/Order';
 import type { ICustomerRepository } from '../../application/ports/ICustomerRepository';
+import type { PriceCalculationMethod } from '../../domain/product/Product';
 
 export interface PDFGenerationResult {
   filePath: string;
   fileName: string;
+}
+
+export interface ProductInfo {
+  name: string;
+  calcMethod: PriceCalculationMethod;
+}
+
+export interface PDFFooterConfig {
+  taxNumber?: string;
+  ustId?: string;
+  bankAccountHolder?: string;
+  bankIban?: string;
+  bankBic?: string;
 }
 
 export class PDFService {
@@ -55,7 +69,7 @@ export class PDFService {
     }
   }
 
-  async generateInvoicePDF(invoice: Invoice, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string, logoPath?: string): Promise<PDFGenerationResult> {
+  async generateInvoicePDF(invoice: Invoice, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string, logoPath?: string, productNames?: Map<string, ProductInfo>, footerConfig?: PDFFooterConfig): Promise<PDFGenerationResult> {
     const fileName = `invoice-${invoice.invoiceNumber}.pdf`;
     const filePath = path.join(this.outputDir, fileName);
 
@@ -75,8 +89,8 @@ export class PDFService {
     // Header
     doc.fontSize(20).text('RECHNUNG', 50, 50);
     doc.fontSize(12).text(`Rechnungsnummer: ${invoice.invoiceNumber}`, 50, 80);
-    doc.text(`Datum: ${invoice.date}`, 50, 95);
-    doc.text(`Fällig bis: ${invoice.dueDate || 'Sofort'}`, 50, 110);
+    doc.text(`Datum: ${this.formatDateDE(invoice.date)}`, 50, 95);
+    doc.text(`Fällig bis: ${invoice.dueDate ? this.formatDateDE(invoice.dueDate) : 'Sofort'}`, 50, 110);
 
     // Customer info
     doc.fontSize(10).text('Kunde:', 50, 140);
@@ -95,16 +109,25 @@ export class PDFService {
     doc.text('Beschreibung', 80, y);
     doc.text('Menge', 300, y);
     doc.text('Einheit', 350, y);
-    doc.text('Preis', 400, y);
+    doc.text('Einzelpreis', 400, y);
     doc.text('Gesamt', 480, y);
 
     y += 15;
     invoice.lineItems.forEach((item, index) => {
+      // Use product name if available
+      let description = item.description;
+      if (item.productId && productNames?.has(item.productId)) {
+        const info = productNames.get(item.productId)!;
+        description = info.name;
+      }
+      const unitLabel = item.productId && productNames?.has(item.productId)
+        ? this.getUnitLabel(productNames.get(item.productId)!.calcMethod)
+        : '';
       doc.text(`${index + 1}`, 50, y);
-      doc.text(item.description, 80, y, { width: 200 });
+      doc.text(description, 80, y, { width: 200 });
       doc.text(item.quantity.toString(), 300, y);
       doc.text(item.unit, 350, y);
-      doc.text(this.formatCurrency(item.unitPrice), 400, y);
+      doc.text(`${this.formatCurrency(item.unitPrice)}${unitLabel}`, 400, y);
       doc.text(this.formatCurrency(item.totalPrice), 480, y);
       y += 20;
     });
@@ -117,15 +140,11 @@ export class PDFService {
     doc.fontSize(12).text(`Gesamtbetrag: ${this.formatCurrency(invoice.totalGross)}`, 350, y + 35);
 
     // Footer
-    let footerY = 680;
-    if (deliveryNote) {
-      doc.fontSize(8).text(`Lieferhinweis: ${deliveryNote}`, 50, footerY, { width: 400 });
-      footerY += 25;
-    }
-    doc.fontSize(8).text('Diese Rechnung wurde maschinell erstellt und ist ohne Unterschrift gültig.', 50, footerY);
-    if (taxNumber) {
-      doc.text(`Steuernummer: ${taxNumber}`, 400, footerY);
-    }
+    this.drawFooter(doc, {
+      legalText: 'Diese Rechnung wurde maschinell erstellt und ist ohne Unterschrift gültig.',
+      deliveryNote,
+      footer: footerConfig ?? { taxNumber },
+    });
 
     if (documentLinkUrl) {
       this.drawRoundQRCode(doc as any, documentLinkUrl, 490, 119, 70);
@@ -141,7 +160,7 @@ export class PDFService {
     });
   }
 
-  async generateOfferPDF(offer: Offer, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string, logoPath?: string): Promise<PDFGenerationResult> {
+  async generateOfferPDF(offer: Offer, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string, logoPath?: string, productNames?: Map<string, ProductInfo>, footerConfig?: PDFFooterConfig): Promise<PDFGenerationResult> {
     const fileName = `offer-${offer.offerNumber}.pdf`;
     const filePath = path.join(this.outputDir, fileName);
 
@@ -161,14 +180,14 @@ export class PDFService {
     // Header
     doc.fontSize(20).text('ANGEBOT', 50, 50);
     doc.fontSize(12).text(`Angebotsnummer: ${offer.offerNumber}`, 50, 80);
-    doc.text(`Datum: ${offer.date}`, 50, 95);
+    doc.text(`Datum: ${this.formatDateDE(offer.date)}`, 50, 95);
     let headerY = 110;
     if (offer.validUntil) {
-      doc.text(`Gültig bis: ${offer.validUntil}`, 50, headerY);
+      doc.text(`Gültig bis: ${this.formatDateDE(offer.validUntil)}`, 50, headerY);
       headerY += 15;
     }
     if (offer.desiredCompletionDate) {
-      doc.text(`Gewünschte Fertigstellung: ${offer.desiredCompletionDate}`, 50, headerY);
+      doc.text(`Gewünschte Fertigstellung: ${this.formatDateDE(offer.desiredCompletionDate)}`, 50, headerY);
       headerY += 15;
     }
 
@@ -188,15 +207,18 @@ export class PDFService {
     doc.text('Pos', 50, y);
     doc.text('Artikel', 80, y);
     doc.text('Menge', 250, y);
-    doc.text('Preis/m²', 320, y);
+    doc.text('Einzelpreis', 320, y);
     doc.text('Gesamt', 420, y);
 
     y += 15;
     offer.items.forEach((item, index) => {
+      const productInfo = productNames?.get(item.productId);
+      const itemName = productInfo ? productInfo.name : 'Holzprodukt';
+      const unitLabel = this.getUnitLabel(productInfo?.calcMethod);
       doc.text(`${index + 1}`, 50, y);
-      doc.text(`Holzprodukt ${item.lengthMm}mm`, 80, y, { width: 160 });
+      doc.text(`${itemName}, ${this.formatLengthM(item.lengthMm)}`, 80, y, { width: 160 });
       doc.text(`${item.quantity} Stk`, 250, y);
-      doc.text(this.formatCurrency(item.pricePerM2), 320, y);
+      doc.text(`${this.formatCurrency(item.pricePerM2)}${unitLabel}`, 320, y);
       doc.text(this.formatCurrency(item.netTotal), 420, y);
       y += 20;
     });
@@ -209,15 +231,12 @@ export class PDFService {
     doc.fontSize(12).text(`Gesamtbetrag: ${this.formatCurrency(offer.grossSum)}`, 320, y + 35);
 
     // Footer
-    let footerY = 680;
-    if (deliveryNote) {
-      doc.fontSize(8).text(`Lieferhinweis: ${deliveryNote}`, 50, footerY, { width: 400 });
-      footerY += 25;
-    }
-    doc.fontSize(8).text('Dieses Angebot ist freibleibend. Wir freuen uns auf Ihren Auftrag.', 50, footerY);
-    if (taxNumber) {
-      doc.text(`Steuernummer: ${taxNumber}`, 400, footerY);
-    }
+    this.drawFooter(doc, {
+      legalText: 'Dieses Angebot ist freibleibend. Wir freuen uns auf Ihren Auftrag.',
+      deliveryNote,
+      footer: footerConfig ?? { taxNumber },
+    });
+
     if (documentLinkUrl) {
       // QR code top right beside the title - links to offer portal (view + accept/reject)
       this.drawRoundQRCode(doc as any, documentLinkUrl, 490, 129, 70);
@@ -233,7 +252,7 @@ export class PDFService {
     });
   }
 
-  async generateOrderPDF(order: Order, sellerAddress: string, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string, logoPath?: string): Promise<PDFGenerationResult> {
+  async generateOrderPDF(order: Order, sellerAddress: string, taxNumber?: string, deliveryNote?: string, documentLinkUrl?: string, logoPath?: string, productNames?: Map<string, ProductInfo>, footerConfig?: PDFFooterConfig): Promise<PDFGenerationResult> {
     const customer = await this.customerRepo.findById(order.customerId);
     const fileName = `order-${order.orderNumber}.pdf`;
     const filePath = path.join(this.outputDir, fileName);
@@ -254,10 +273,9 @@ export class PDFService {
     // Header
     doc.fontSize(20).text('AUFTRAGSBESTÄTIGUNG', 50, 50);
     doc.fontSize(12).text(`Auftragsnummer: ${order.orderNumber}`, 50, 80);
-    const dateStr = order.createdAt.split('T')[0];
-    doc.text(`Datum: ${dateStr}`, 50, 95);
+    doc.text(`Datum: ${this.formatDateDE(order.createdAt)}`, 50, 95);
     if (order.desiredCompletionDate) {
-      doc.text(`Gewünschte Fertigstellung: ${order.desiredCompletionDate}`, 50, 110);
+      doc.text(`Gewünschte Fertigstellung: ${this.formatDateDE(order.desiredCompletionDate)}`, 50, 110);
     }
 
     // Customer info
@@ -276,15 +294,18 @@ export class PDFService {
     doc.text('Pos', 50, y);
     doc.text('Artikel', 80, y);
     doc.text('Menge', 250, y);
-    doc.text('Preis/Stück', 320, y);
+    doc.text('Einzelpreis', 320, y);
     doc.text('Gesamt', 420, y);
 
     y += 15;
     order.items.forEach((item, index) => {
+      const productInfo = productNames?.get(item.productId);
+      const itemName = productInfo ? productInfo.name : 'Holzprodukt';
+      const unitLabel = this.getUnitLabel(productInfo?.calcMethod);
       doc.text(`${index + 1}`, 50, y);
-      doc.text(`Holzprodukt ${item.lengthMm}mm`, 80, y, { width: 160 });
+      doc.text(`${itemName}, ${this.formatLengthM(item.lengthMm)}`, 80, y, { width: 160 });
       doc.text(`${item.quantity} Stk`, 250, y);
-      doc.text(this.formatCurrency(item.pricePerM2), 320, y);
+      doc.text(`${this.formatCurrency(item.pricePerM2)}${unitLabel}`, 320, y);
       doc.text(this.formatCurrency(item.netTotal), 420, y);
       y += 20;
     });
@@ -297,15 +318,11 @@ export class PDFService {
     doc.fontSize(12).text(`Gesamtbetrag: ${this.formatCurrency(order.grossSum)}`, 320, y + 35);
 
     // Footer
-    let footerY = 680;
-    if (deliveryNote) {
-      doc.fontSize(8).text(`Lieferhinweis: ${deliveryNote}`, 50, footerY, { width: 400 });
-      footerY += 25;
-    }
-    doc.fontSize(8).text('Wir danken für Ihren Auftrag!', 50, footerY);
-    if (taxNumber) {
-      doc.text(`Steuernummer: ${taxNumber}`, 400, footerY);
-    }
+    this.drawFooter(doc, {
+      legalText: 'Wir danken für Ihren Auftrag!',
+      deliveryNote,
+      footer: footerConfig ?? { taxNumber },
+    });
 
     if (documentLinkUrl) {
       this.drawRoundQRCode(doc as any, documentLinkUrl, 490, 119, 70);
@@ -321,8 +338,80 @@ export class PDFService {
     });
   }
 
+  /**
+   * Draw a standardized footer with delivery note, legal text, tax info, and bank details.
+   */
+  private drawFooter(doc: PDFKit.PDFDocument, options: {
+    legalText: string;
+    deliveryNote?: string;
+    footer?: PDFFooterConfig;
+  }): void {
+    const { legalText, deliveryNote, footer } = options;
+    let footerY = 680;
+
+    if (deliveryNote) {
+      doc.fontSize(8).text(`Lieferhinweis: ${deliveryNote}`, 50, footerY, { width: 400 });
+      footerY += 25;
+    }
+
+    doc.fontSize(8).text(legalText, 50, footerY, { width: 350 });
+
+    // Right column: Tax + Bank info
+    let rightY = footerY;
+    if (footer?.taxNumber) {
+      doc.fontSize(8).text(`Steuernummer: ${footer.taxNumber}`, 380, rightY, { width: 180 });
+      rightY += 12;
+    }
+    if (footer?.ustId) {
+      doc.fontSize(8).text(`USt-IdNr.: ${footer.ustId}`, 380, rightY, { width: 180 });
+      rightY += 12;
+    }
+
+    // Bank details below tax info (or at same level if no tax info)
+    if (footer?.bankIban || footer?.bankAccountHolder) {
+      rightY += 4; // small gap
+      if (footer.bankAccountHolder) {
+        doc.fontSize(7).text(`Kto.-Inhaber: ${footer.bankAccountHolder}`, 380, rightY, { width: 180 });
+        rightY += 10;
+      }
+      if (footer.bankIban) {
+        doc.fontSize(7).text(`IBAN: ${footer.bankIban}`, 380, rightY, { width: 180 });
+        rightY += 10;
+      }
+      if (footer.bankBic) {
+        doc.fontSize(7).text(`BIC: ${footer.bankBic}`, 380, rightY, { width: 180 });
+      }
+    }
+  }
+
   private formatCurrency(amount: number): string {
     return `€ ${(amount).toFixed(2)}`;
+  }
+
+  /** Convert ISO date (YYYY-MM-DD or full ISO) to DD.MM.YYYY */
+  private formatDateDE(isoDate: string): string {
+    const datePart = isoDate.split('T')[0]; // handle full ISO datetime
+    const [year, month, day] = datePart.split('-');
+    if (!year || !month || !day) return isoDate;
+    return `${day}.${month}.${year}`;
+  }
+
+  /** Convert mm to meters string, e.g. 4500 → "4,500 m" */
+  private formatLengthM(mm: number): string {
+    return `${(mm / 1000).toFixed(3).replace('.', ',')} m`;
+  }
+
+  /** Get unit label for a calc method */
+  private getUnitLabel(calcMethod?: PriceCalculationMethod): string {
+    switch (calcMethod) {
+      case 'm2_unsorted':
+      case 'm2_sorted':
+        return '/m²';
+      case 'volume_divided':
+        return '/lfm';
+      default:
+        return '/m²';
+    }
   }
 
   getFullPath(fileName: string): string {
